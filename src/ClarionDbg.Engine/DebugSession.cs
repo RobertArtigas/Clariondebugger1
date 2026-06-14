@@ -27,7 +27,6 @@ public sealed class DebugSession
     readonly ConcurrentDictionary<uint, IntPtr> _threads = new();
 
     readonly AutoResetEvent _resume = new(false);
-    volatile bool _terminate;
     Thread? _worker;
 
     // ---- stepping ----
@@ -57,7 +56,7 @@ public sealed class DebugSession
     public void StepInto() { _act = Act.Into; _resume.Set(); }
     public void StepOver() { _act = Act.Over; _resume.Set(); }
     public void StepOut()  { _act = Act.Out;  _resume.Set(); }
-    public void Terminate() { _act = Act.Terminate; _terminate = true; _resume.Set(); }
+    public void Terminate() { _act = Act.Terminate; _resume.Set(); }
 
     void Run()
     {
@@ -253,6 +252,7 @@ public sealed class DebugSession
         var loc = _info.Locate(eipRva);
 
         // EBP call-stack walk — each frame carries its own locals (read at that frame's EBP)
+        _liveFrames.Clear();
         var stack = new List<Frame> { MakeFrame(ctx.Eip, ctx.Ebp) };
         uint ebp = ctx.Ebp;
         for (int i = 0; i < 32 && ebp != 0; i++)
@@ -273,24 +273,49 @@ public sealed class DebugSession
         Stopped?.Invoke(new StopInfo(ctx.Eip, loc?.Module, loc?.Line, stack, globals, stack[0].Locals, reason));
     }
 
+    readonly List<(uint Ebp, uint Rva)> _liveFrames = new();   // for live re-reading while running
+
     Frame MakeFrame(uint addr, uint frameEbp)
     {
         uint rva = addr - _base;
         bool code = _pe.IsCodeRva(rva);
         var l = code ? _info.Locate(rva) : null;
+        _liveFrames.Add((frameEbp, rva));
+        return new Frame(FrameLabel(rva, addr), addr, l?.Module, l?.Line, ReadProcLocals(frameEbp, rva));
+    }
+
+    List<VarValue> ReadProcLocals(uint frameEbp, uint rva)
+    {
         var locals = new List<VarValue>();
-        if (code)
-        {
-            var proc = _info.ProcContaining(rva);
-            if (proc != null)
-                foreach (var lv in proc.Locals)
-                {
-                    uint va = lv.IsStatic ? _base + lv.Rva : (uint)((long)frameEbp + lv.FrameOffset);
-                    int sz = lv.Type.Size > 0 ? lv.Type.Size : lv.DisplaySize;
-                    locals.Add(ReadVar(lv.Name, va, lv.Type, sz, lv.Threaded));
-                }
-        }
-        return new Frame(FrameLabel(rva, addr), addr, l?.Module, l?.Line, locals);
+        if (!_pe.IsCodeRva(rva)) return locals;
+        var proc = _info.ProcContaining(rva);
+        if (proc != null)
+            foreach (var lv in proc.Locals)
+            {
+                uint va = lv.IsStatic ? _base + lv.Rva : (uint)((long)frameEbp + lv.FrameOffset);
+                int sz = lv.Type.Size > 0 ? lv.Type.Size : lv.DisplaySize;
+                locals.Add(ReadVar(lv.Name, va, lv.Type, sz, lv.Threaded));
+            }
+        return locals;
+    }
+
+    /// <summary>Re-read a frame's locals from CURRENT process memory (valid while running, as long
+    /// as that frame is still alive). Returns empty if the process is gone.</summary>
+    public IReadOnlyList<VarValue> RereadFrameLocals(int frameIndex)
+    {
+        if (_hProcess == IntPtr.Zero || frameIndex < 0 || frameIndex >= _liveFrames.Count)
+            return Array.Empty<VarValue>();
+        var (ebp, rva) = _liveFrames[frameIndex];
+        return ReadProcLocals(ebp, rva);
+    }
+
+    public IReadOnlyList<VarValue> RereadGlobals()
+    {
+        if (_hProcess == IntPtr.Zero) return Array.Empty<VarValue>();
+        var list = new List<VarValue>();
+        foreach (var g in _info.Globals)
+            list.Add(ReadVar(g.Name, _base + g.Rva, g.Type, g.DisplaySize, g.Threaded));
+        return list;
     }
 
     VarValue ReadVar(string name, uint va, ClaType type, int size, bool threaded = false)

@@ -108,6 +108,9 @@ MSBuild.exe sample/dbgtest/dbgtest.cwproj /p:Configuration=Debug `
 - [x] **Stepping** — step over / into / out at line granularity (F10 / F11 / Shift+F11),
       via trap-flag single-stepping + the line table; locals re-read at every stop so values
       update as you step.
+- [x] **Live value refresh** — while the debuggee runs, the selected frame's locals and the
+      globals re-read from process memory every ~400 ms, so values update in place as the app
+      changes them (no re-break needed), as long as that frame is still alive.
 - [ ] Edit-variable-at-runtime (write a new value from the debugger via WriteProcessMemory).
 - [ ] Clarion ROUTINE frame sharing (routines reuse the parent procedure's locals).
 - [ ] Edit-variable-at-runtime (`WriteProcessMemory`), watch expressions, conditional BPs.

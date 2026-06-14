@@ -27,12 +27,15 @@ public partial class MainWindow : Window
     readonly ObservableCollection<VarRow> _vars = new();
     readonly ObservableCollection<VarRow> _localsRows = new();
 
+    readonly System.Windows.Threading.DispatcherTimer _liveTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
+
     public MainWindow()
     {
         InitializeComponent();
         SourceList.ItemsSource = _lines;
         GridVars.ItemsSource = _vars;
         GridLocals.ItemsSource = _localsRows;
+        _liveTimer.Tick += (_, _) => RefreshLive();
         Loaded += (_, _) =>
         {
             // optional: open an EXE passed on the command line, else the bundled sample
@@ -294,6 +297,28 @@ public partial class MainWindow : Window
         BtnStop.IsEnabled = s != State.Idle;
         BtnStepOver.IsEnabled = BtnStepInto.IsEnabled = BtnStepOut.IsEnabled = s == State.Stopped;
         BtnGo.Content = s == State.Stopped ? "▶  Continue  (F5)" : "▶  Go  (F5)";
+        if (s == State.Running) _liveTimer.Start(); else _liveTimer.Stop();   // live value refresh
+    }
+
+    /// <summary>While running, re-read the selected frame's locals + globals from live memory so
+    /// values update without re-breaking (works while the frame is still alive).</summary>
+    void RefreshLive()
+    {
+        if (_state != State.Running || _session == null) return;
+        try
+        {
+            int idx = LstStack.SelectedIndex < 0 ? 0 : LstStack.SelectedIndex;
+            UpdateRows(_localsRows, _session.RereadFrameLocals(idx));
+            UpdateRows(_vars, _session.RereadGlobals());
+        }
+        catch { }
+    }
+
+    static void UpdateRows(ObservableCollection<VarRow> rows, IReadOnlyList<DebugSession.VarValue> vals)
+    {
+        int n = Math.Min(rows.Count, vals.Count);
+        for (int i = 0; i < n; i++)
+            if (rows[i].Name == vals[i].Name) { rows[i].Value = vals[i].Display; rows[i].Tip = vals[i].Full; }
     }
 
     void Log(string s) { TxtLog.AppendText(s + "\n"); TxtLog.ScrollToEnd(); }
@@ -347,11 +372,16 @@ public sealed class ProcItem
     public override string ToString() => $"{Name}  @0x{Rva:X}";
 }
 
-public sealed class VarRow
+public sealed class VarRow : INotifyPropertyChanged
 {
     public string Name { get; set; } = "";
     public string Type { get; set; } = "";
-    public string Value { get; set; } = "";
     public string Address { get; set; } = "";
-    public string Tip { get; set; } = "";
+
+    string _value = "", _tip = "";
+    public string Value { get => _value; set { if (_value != value) { _value = value; Raise(nameof(Value)); } } }
+    public string Tip { get => _tip; set { if (_tip != value) { _tip = value; Raise(nameof(Tip)); } } }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    void Raise(string p) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(p));
 }
