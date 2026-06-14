@@ -111,7 +111,9 @@ MSBuild.exe sample/dbgtest/dbgtest.cwproj /p:Configuration=Debug `
 - [x] **Live value refresh** — while the debuggee runs, the selected frame's locals and the
       globals re-read from process memory every ~400 ms, so values update in place as the app
       changes them (no re-break needed), as long as that frame is still alive.
-- [ ] Edit-variable-at-runtime (write a new value from the debugger via WriteProcessMemory).
+- [x] **Edit a variable's value** — right-click (or double-click) a local/global → modal dialog →
+      writes the new value to process memory (`WriteProcessMemory`). Parses by kind: integer,
+      float, string (space-padded like a Clarion STRING), or raw hex; re-reads to confirm.
 - [ ] Clarion ROUTINE frame sharing (routines reuse the parent procedure's locals).
 - [ ] Edit-variable-at-runtime (`WriteProcessMemory`), watch expressions, conditional BPs.
 - [ ] STRING/CSTRING/PSTRING distinction; DATE/TIME calendar formatting.

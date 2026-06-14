@@ -67,6 +67,20 @@ sess.Stopped += info2 =>
     Console.WriteLine("globals (typed, live values):");
     foreach (var v in info2.Globals)
         Console.WriteLine($"   {v.Name,-12} {v.TypeName,-14} = {v.Display}");
+    var setLocal = Environment.GetEnvironmentVariable("CLARIONDBG_SETLOCAL");   // "NAME=VALUE"
+    if (setLocal != null && setLocal.Contains('='))
+    {
+        var parts = setLocal.Split('=', 2);
+        var lv = info2.Stack[0].Locals.FirstOrDefault(x => x.Name.Equals(parts[0], StringComparison.OrdinalIgnoreCase));
+        if (lv != null)
+        {
+            bool ok = sess.WriteVar(lv.Addr, lv.Kind, lv.Size, parts[1]);
+            Console.WriteLine($"\n>>> WriteVar {lv.Name} := {parts[1]} -> {ok}");
+            var nv = sess.RereadFrameLocals(0).FirstOrDefault(x => x.Name == lv.Name);
+            Console.WriteLine($">>> re-read {lv.Name} = {nv?.Display}");
+        }
+    }
+
     int stepsLeft = int.TryParse(Environment.GetEnvironmentVariable("CLARIONDBG_STEPS"), out var sc) ? sc : 0;
     string kind = Environment.GetEnvironmentVariable("CLARIONDBG_STEPKIND") ?? "into";
     if (stepsLeft > 0 && stepCounter < stepsLeft)

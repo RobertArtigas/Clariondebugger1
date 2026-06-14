@@ -160,7 +160,11 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
                 <TextBlock x:Name="TxtLocalsHeader" Grid.Row="0" Text="LOCALS (current procedure)" Style="{StaticResource Header}"/>
-                <DataGrid x:Name="GridLocals" Grid.Row="1" Style="{StaticResource VarGrid}">
+                <DataGrid x:Name="GridLocals" Grid.Row="1" Style="{StaticResource VarGrid}"
+                          MouseDoubleClick="GridLocals_DoubleClick" PreviewMouseRightButtonDown="Grid_RightDown">
+                    <DataGrid.ContextMenu>
+                        <ContextMenu><MenuItem Header="Set Value…" Click="SetValue_Click"/></ContextMenu>
+                    </DataGrid.ContextMenu>
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="Auto"/>
                         <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="Auto"/>
@@ -169,7 +173,11 @@
                     </DataGrid.Columns>
                 </DataGrid>
                 <TextBlock Grid.Row="2" Text="GLOBALS" Style="{StaticResource Header}"/>
-                <DataGrid x:Name="GridVars" Grid.Row="3" Style="{StaticResource VarGrid}">
+                <DataGrid x:Name="GridVars" Grid.Row="3" Style="{StaticResource VarGrid}"
+                          MouseDoubleClick="GridVars_DoubleClick" PreviewMouseRightButtonDown="Grid_RightDown">
+                    <DataGrid.ContextMenu>
+                        <ContextMenu><MenuItem Header="Set Value…" Click="SetValue_Click"/></ContextMenu>
+                    </DataGrid.ContextMenu>
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="Auto"/>
                         <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="Auto"/>

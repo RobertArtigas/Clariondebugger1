@@ -5,9 +5,10 @@ namespace ClarionDbg.Engine;
 
 public sealed class DebugSession
 {
+    public enum WriteKind { Int, UInt, Float, Str, Raw }
     public record Breakpoint(string? Module, int Line);
     public record Frame(string Proc, uint Addr, string? Module, int? Line, IReadOnlyList<VarValue> Locals);
-    public record VarValue(string Name, uint Addr, string TypeName, string Display, string Full);
+    public record VarValue(string Name, uint Addr, string TypeName, string Display, string Full, int Size, WriteKind Kind);
     public record StopInfo(uint Eip, string? Module, int? Line, IReadOnlyList<Frame> Stack,
                            IReadOnlyList<VarValue> Globals, IReadOnlyList<VarValue> Locals, string Reason);
 
@@ -321,37 +322,44 @@ public sealed class DebugSession
     VarValue ReadVar(string name, uint va, ClaType type, int size, bool threaded = false)
     {
         int n = Math.Clamp(size, 1, 8192);   // guard against garbage sizes
-        string disp, full;
+        string disp, full; WriteKind kind;
         try
         {
             var raw = ReadBytes(va, n);
-            (disp, full) = Render(raw, type);
+            (disp, full, kind) = Render(raw, type);
         }
-        catch { disp = full = "<unreadable>"; }
+        catch { disp = full = "<unreadable>"; kind = WriteKind.Raw; }
         if (threaded) { disp = "[tls] " + disp; full = "(thread-local; shown from image template)\n" + full; }
         string tn = type.Kind == TypeKind.Unknown ? $"<{n}b>" : type.Describe();
-        return new VarValue(name, va, tn, disp, full);
+        return new VarValue(name, va, tn, disp, full, n, kind);
     }
 
-    /// <summary>Concise value + a complete tooltip. Undecoded data is shown as a string when it
-    /// looks like text, as an integer for 4-byte fields, else hex — with full detail in the tip.</summary>
-    static (string Display, string Full) Render(byte[] b, ClaType type)
+    /// <summary>Concise value + a complete tooltip + how to write it back. Undecoded data is shown
+    /// as a string when it looks like text, as an integer for 4-byte fields, else hex.</summary>
+    static (string Display, string Full, WriteKind Kind) Render(byte[] b, ClaType type)
     {
         if (type.Kind != TypeKind.Unknown)
         {
             string d = type.Format(b);
-            return (d, $"{type.Describe()} = {d}");
+            WriteKind tk = type.Kind switch
+            {
+                TypeKind.Int => WriteKind.Int,
+                TypeKind.UInt => WriteKind.UInt,
+                TypeKind.Float => WriteKind.Float,
+                TypeKind.String => WriteKind.Str,
+                _ => WriteKind.Raw
+            };
+            return (d, $"{type.Describe()} = {d}", tk);
         }
         string ascii = new string(b.TakeWhile(x => x != 0).Select(x => x >= 32 && x < 127 ? (char)x : '·').ToArray());
         int printable = 0;
         foreach (var x in b) { if (x >= 32 && x < 127) printable++; else break; }
 
-        string disp;
-        if (printable >= 2)
-            disp = "'" + (ascii.Length > 48 ? ascii[..48] + "…" : ascii) + "'";
-        else if (b.Length >= 4) disp = BinaryPrimitives.ReadInt32LittleEndian(b).ToString();
-        else if (b.Length == 2) disp = BinaryPrimitives.ReadInt16LittleEndian(b).ToString();
-        else disp = b[0].ToString();   // BYTE -> decimal
+        string disp; WriteKind kind;
+        if (printable >= 2) { disp = "'" + (ascii.Length > 48 ? ascii[..48] + "…" : ascii) + "'"; kind = WriteKind.Str; }
+        else if (b.Length >= 4) { disp = BinaryPrimitives.ReadInt32LittleEndian(b).ToString(); kind = WriteKind.Int; }
+        else if (b.Length == 2) { disp = BinaryPrimitives.ReadInt16LittleEndian(b).ToString(); kind = WriteKind.Int; }
+        else { disp = b[0].ToString(); kind = WriteKind.Int; }
 
         var sb = new System.Text.StringBuilder();
         sb.Append("hex:   ").Append(BitConverter.ToString(b).Replace("-", " "));
@@ -361,7 +369,47 @@ public sealed class DebugSession
             sb.Append($"\nint32: {BinaryPrimitives.ReadInt32LittleEndian(b)}   uint32: {BinaryPrimitives.ReadUInt32LittleEndian(b)}   hex: 0x{BinaryPrimitives.ReadUInt32LittleEndian(b):X8}");
         if (b.Length >= 8)
             sb.Append($"\nreal8: {BitConverter.ToDouble(b, 0):0.######}");
-        return (disp, sb.ToString());
+        return (disp, sb.ToString(), kind);
+    }
+
+    /// <summary>Write a new value to a variable's address (works while stopped or running).</summary>
+    public bool WriteVar(uint addr, WriteKind kind, int size, string input)
+    {
+        if (_hProcess == IntPtr.Zero || size <= 0) return false;
+        input = input.Trim();
+        byte[] bytes;
+        try
+        {
+            switch (kind)
+            {
+                case WriteKind.Int:
+                case WriteKind.UInt:
+                    long v = input.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                        ? Convert.ToInt64(input[2..], 16)
+                        : long.Parse(input, System.Globalization.CultureInfo.InvariantCulture);
+                    bytes = new byte[Math.Min(size, 8)];
+                    for (int i = 0; i < bytes.Length; i++) bytes[i] = (byte)(v >> (8 * i));
+                    break;
+                case WriteKind.Float:
+                    double d = double.Parse(input, System.Globalization.CultureInfo.InvariantCulture);
+                    bytes = size >= 8 ? BitConverter.GetBytes(d) : BitConverter.GetBytes((float)d);
+                    break;
+                case WriteKind.Str:
+                    string s = input;
+                    if (s.Length >= 2 && (s[0] == '\'' || s[0] == '"') && s[^1] == s[0]) s = s[1..^1];
+                    var a = System.Text.Encoding.ASCII.GetBytes(s);
+                    bytes = new byte[size];
+                    for (int i = 0; i < size; i++) bytes[i] = i < a.Length ? a[i] : (byte)0x20;   // space-pad (Clarion STRING)
+                    break;
+                default:   // Raw: accept hex like "0A FF 00" or "0x0AFF00"
+                    string hx = input.Replace("0x", "", StringComparison.OrdinalIgnoreCase).Replace(" ", "").Replace("-", "");
+                    bytes = new byte[size];
+                    for (int i = 0; i * 2 + 1 < hx.Length && i < size; i++) bytes[i] = Convert.ToByte(hx.Substring(i * 2, 2), 16);
+                    break;
+            }
+        }
+        catch { return false; }
+        return Native.WriteProcessMemory(_hProcess, (IntPtr)addr, bytes, bytes.Length, out _);
     }
 
     string FrameLabel(uint rva, uint absAddr)

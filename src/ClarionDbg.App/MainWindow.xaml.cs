@@ -216,8 +216,7 @@ public partial class MainWindow : Window
         _suppressStackSource = false;
 
         _vars.Clear();
-        foreach (var v in info.Globals)
-            _vars.Add(new VarRow { Name = v.Name, Type = v.TypeName, Value = v.Display, Address = $"0x{v.Addr:X8}", Tip = v.Full });
+        foreach (var v in info.Globals) _vars.Add(ToRow(v));
 
         Status($"Stopped at line {info.Line}. Press Go to continue.");
     });
@@ -229,8 +228,7 @@ public partial class MainWindow : Window
         _stickyFrame = f.Proc;          // remember the user's choice so steps keep it selected
         TxtLocalsHeader.Text = $"LOCALS — {f.Proc}" + (f.Line is int ln ? $"  ({f.Module}:{ln})" : "");
         _localsRows.Clear();
-        foreach (var v in f.Locals)
-            _localsRows.Add(new VarRow { Name = v.Name, Type = v.TypeName, Value = v.Display, Address = $"0x{v.Addr:X8}", Tip = v.Full });
+        foreach (var v in f.Locals) _localsRows.Add(ToRow(v));
         // jump the source view to the selected frame's line — but only on an explicit click,
         // not when we re-select the sticky frame on a stop (then the source follows execution)
         if (!_suppressStackSource && f.Module != null && f.Line is int fl)
@@ -330,6 +328,54 @@ public partial class MainWindow : Window
             if (rows[i].Name == vals[i].Name) { rows[i].Value = vals[i].Display; rows[i].Tip = vals[i].Full; }
     }
 
+    static VarRow ToRow(DebugSession.VarValue v) => new()
+    {
+        Name = v.Name, Type = v.TypeName, Value = v.Display, Address = $"0x{v.Addr:X8}",
+        Tip = v.Full, AddrValue = v.Addr, Size = v.Size, Kind = v.Kind
+    };
+
+    // ---------- edit value (write to process memory) ----------
+    void GridLocals_DoubleClick(object sender, MouseButtonEventArgs e) => EditRow(GridLocals.SelectedItem as VarRow);
+    void GridVars_DoubleClick(object sender, MouseButtonEventArgs e) => EditRow(GridVars.SelectedItem as VarRow);
+
+    void SetValue_Click(object sender, RoutedEventArgs e)
+    {
+        var grid = ((sender as System.Windows.Controls.MenuItem)?.Parent as System.Windows.Controls.ContextMenu)
+                   ?.PlacementTarget as System.Windows.Controls.DataGrid;
+        EditRow(grid?.SelectedItem as VarRow);
+    }
+
+    // right-click selects the row under the cursor so the context menu targets it
+    void Grid_RightDown(object sender, MouseButtonEventArgs e)
+    {
+        var dep = e.OriginalSource as DependencyObject;
+        while (dep != null && dep is not System.Windows.Controls.DataGridRow)
+            dep = System.Windows.Media.VisualTreeHelper.GetParent(dep);
+        if (dep is System.Windows.Controls.DataGridRow r) r.IsSelected = true;
+    }
+
+    void EditRow(VarRow? row)
+    {
+        if (_session == null) { Log("Start debugging first."); return; }
+        if (row == null) return;
+        if (row.AddrValue == 0) { Log($"{row.Name}: no writable address."); return; }
+
+        var dlg = new EditValueWindow(row.Name, row.Type, row.AddrValue, row.Value) { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+
+        bool ok = _session.WriteVar(row.AddrValue, row.Kind, row.Size, dlg.NewValue);
+        Log(ok ? $"Set {row.Name} = {dlg.NewValue} @ 0x{row.AddrValue:X8}"
+               : $"Failed to write {row.Name} (check the value format / memory is writable).");
+        if (ok)
+        {
+            var reread = _localsRows.Contains(row)
+                ? _session.RereadFrameLocals(LstStack.SelectedIndex < 0 ? 0 : LstStack.SelectedIndex)
+                : _session.RereadGlobals();
+            var nv = reread.FirstOrDefault(x => x.Name == row.Name && x.Addr == row.AddrValue);
+            if (nv != null) { row.Value = nv.Display; row.Tip = nv.Full; }
+        }
+    }
+
     void Log(string s) { TxtLog.AppendText(s + "\n"); TxtLog.ScrollToEnd(); }
     void Status(string s) => TxtStatus.Text = s;
 
@@ -386,6 +432,9 @@ public sealed class VarRow : INotifyPropertyChanged
     public string Name { get; set; } = "";
     public string Type { get; set; } = "";
     public string Address { get; set; } = "";
+    public uint AddrValue { get; set; }
+    public int Size { get; set; }
+    public DebugSession.WriteKind Kind { get; set; }
 
     string _value = "", _tip = "";
     public string Value { get => _value; set { if (_value != value) { _value = value; Raise(nameof(Value)); } } }
