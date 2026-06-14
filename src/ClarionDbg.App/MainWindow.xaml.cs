@@ -21,6 +21,8 @@ public partial class MainWindow : Window
     string? _exePath;
     string? _curModule;
     bool _suppressModuleEvent;
+    string? _stickyFrame;          // keep this procedure selected in the call stack across steps
+    bool _suppressStackSource;     // re-selecting a frame on stop shouldn't move the source off the execution line
     readonly HashSet<(string Module, int Line)> _breaks = new();
 
     readonly ObservableCollection<SourceLine> _lines = new();
@@ -205,8 +207,13 @@ public partial class MainWindow : Window
                 ((FrameworkElement?)SourceList.ItemContainerGenerator.ContainerFromItem(sl))?.BringIntoView(); }
         }
 
-        LstStack.ItemsSource = info.Stack.Select((f, i) => new FrameRow(i, f)).ToList();
-        LstStack.SelectedIndex = 0;   // triggers ShowFrameLocals for the innermost frame
+        // rebuild the call stack, keeping the user's selected procedure selected if it's still present
+        var rows = info.Stack.Select((f, i) => new FrameRow(i, f)).ToList();
+        LstStack.ItemsSource = rows;
+        int sel = _stickyFrame != null ? rows.FindIndex(r => r.Frame.Proc == _stickyFrame) : -1;
+        _suppressStackSource = true;          // keep the source on the execution line, not the re-selected frame
+        LstStack.SelectedIndex = sel >= 0 ? sel : 0;
+        _suppressStackSource = false;
 
         _vars.Clear();
         foreach (var v in info.Globals)
@@ -219,12 +226,14 @@ public partial class MainWindow : Window
     {
         if (LstStack.SelectedItem is not FrameRow fr) return;
         var f = fr.Frame;
+        _stickyFrame = f.Proc;          // remember the user's choice so steps keep it selected
         TxtLocalsHeader.Text = $"LOCALS — {f.Proc}" + (f.Line is int ln ? $"  ({f.Module}:{ln})" : "");
         _localsRows.Clear();
         foreach (var v in f.Locals)
             _localsRows.Add(new VarRow { Name = v.Name, Type = v.TypeName, Value = v.Display, Address = $"0x{v.Addr:X8}", Tip = v.Full });
-        // jump the source view to the selected frame's line
-        if (f.Module != null && f.Line is int fl)
+        // jump the source view to the selected frame's line — but only on an explicit click,
+        // not when we re-select the sticky frame on a stop (then the source follows execution)
+        if (!_suppressStackSource && f.Module != null && f.Line is int fl)
         {
             if (f.Module != _curModule)
             {
