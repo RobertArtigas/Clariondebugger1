@@ -1,0 +1,81 @@
+# Clarion Debugger (modern)
+
+A clean, modern replacement for the crash-prone debugger built into Clarion. It debugs
+**Clarion / TopSpeed** executables compiled in Debug mode by parsing their embedded
+`TSWD` debug information and driving the process with the standard **Win32 Debugging API** —
+no dependency on the proprietary `D32` engine.
+
+## Status — Milestone 1: vertical slice ✅ (proven)
+
+The full pipeline works end-to-end against a real debuggee:
+
+```
+launch dbgtest_dbg.exe  ->  break at dbgtest.clw:21  ->  read live variables  ->  continue
+GBLCOUNT = 5            PERSON.Age = 42 ("Robe"rto)
+GBLNAME  = "Hello Cl"(arion)   GBLPRICE = 19.99 (BCD)
+```
+
+- Launches the debuggee (`CreateProcess(DEBUG_ONLY_THIS_PROCESS)`), uses the **runtime**
+  image base (ASLR-safe).
+- Software breakpoints (`0xCC`) mapped from **source line → address** via the TSWD line table.
+- On hit: rewinds EIP, reads registers (`GetThreadContext`), walks the EBP call stack,
+  and reads **live global values** from process memory.
+- Re-arms breakpoints via single-step; resume / terminate.
+- WPF UI (professional dark theme): source view with breakpoint gutter + current-line
+  highlight, Procedures, Call Stack, Globals/Variables grid, output log.
+
+## How Clarion debug mode works (reverse-engineered)
+
+See **[FINDINGS.md](FINDINGS.md)** for the full write-up. In short:
+
+- Build with project property `vid=full`. A debug build adds a PE section **`.cwdebug`**
+  (a 32-byte locator: `TSWD` sig + blob size + file offset) and appends a **`TSWD` blob**
+  after the last section. Release builds have neither.
+- The blob holds: source filename, a **line ↔ address** table (matches the linker `.MAP`
+  exactly), a name string table (globals `$NAME`, procedures mangled `NAME@F<args>`),
+  symbol/type records, and an address → symbol map.
+
+## Layout
+
+```
+FINDINGS.md                  full reverse-engineering write-up
+tools/                       python helpers (PE/section dump, hexdump, TSWD parser)
+sample/dbgtest/              minimal Clarion program built Debug + Release for study
+src/ClarionDbg.Engine/       PE reader, TSWD parser, Win32 debug session  (x86)
+src/ClarionDbg.App/          WPF debugger UI                               (x86)
+src/ClarionDbg.Probe/        headless console harness that proves the engine
+```
+
+## Build & run
+
+```powershell
+# build everything
+dotnet build src/ClarionDbg.App/ClarionDbg.App.csproj -c Debug
+
+# run the GUI (auto-loads the sample debuggee)
+src/ClarionDbg.App/bin/Debug/net8.0-windows/ClarionDbg.exe
+
+# or prove the engine headlessly
+dotnet run --project src/ClarionDbg.Probe
+```
+
+### Rebuilding the sample debuggee
+```powershell
+MSBuild.exe sample/dbgtest/dbgtest.cwproj /p:Configuration=Debug `
+  /p:ClarionBinPath=C:\Clarion12\bin `
+  "/p:clarion_version=Clarion 12.0.13941" `
+  "/p:ConfigDir=$env:APPDATA\SoftVelocity\Clarion\12.0"
+```
+(`.clw` sources must use CRLF line endings.)
+
+## Roadmap
+
+- [ ] Decode the TSWD **type-byte records** fully → typed locals, params, GROUP layout,
+      arrays, strings, decimals, references.
+- [ ] **Local variables** (EBP-relative) from frame info; per-frame variable view.
+- [ ] Stepping: step over / into / out (line granularity).
+- [ ] Proper module attribution for call-stack frames outside the debuggee module.
+- [ ] Edit-variable-at-runtime (`WriteProcessMemory`), watch expressions, conditional BPs.
+- [ ] Disassembly + memory windows, threads list.
+- [ ] DLL debug info (`.cwdebug` in DLLs), multi-module programs.
+```

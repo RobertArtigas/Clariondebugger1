@@ -1,0 +1,82 @@
+using System.Runtime.InteropServices;
+
+namespace ClarionDbg.Engine;
+
+internal static class Native
+{
+    public const uint DEBUG_ONLY_THIS_PROCESS = 0x00000002;
+    public const uint DBG_CONTINUE = 0x00010002;
+    public const uint DBG_EXCEPTION_NOT_HANDLED = 0x80010001;
+    public const uint INFINITE = 0xFFFFFFFF;
+
+    // debug event codes
+    public const uint EXCEPTION_DEBUG_EVENT = 1;
+    public const uint CREATE_THREAD_DEBUG_EVENT = 2;
+    public const uint CREATE_PROCESS_DEBUG_EVENT = 3;
+    public const uint EXIT_THREAD_DEBUG_EVENT = 4;
+    public const uint EXIT_PROCESS_DEBUG_EVENT = 5;
+    public const uint LOAD_DLL_DEBUG_EVENT = 6;
+    public const uint UNLOAD_DLL_DEBUG_EVENT = 7;
+    public const uint OUTPUT_DEBUG_STRING_EVENT = 8;
+
+    public const uint EXCEPTION_BREAKPOINT = 0x80000003;
+    public const uint EXCEPTION_SINGLE_STEP = 0x80000004;
+
+    // x86 CONTEXT flags
+    public const uint CONTEXT_I386 = 0x00010000;
+    public const uint CONTEXT_FULL = CONTEXT_I386 | 0x1 | 0x2 | 0x4; // control|integer|segments
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct STARTUPINFO { public uint cb; public IntPtr lpReserved, lpDesktop, lpTitle;
+        public uint dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+        public ushort wShowWindow, cbReserved2; public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PROCESS_INFORMATION { public IntPtr hProcess, hThread; public uint dwProcessId, dwThreadId; }
+
+    // x86 CONTEXT (size 716). We address fields by explicit offsets.
+    [StructLayout(LayoutKind.Explicit, Size = 716)]
+    public struct CONTEXT
+    {
+        [FieldOffset(0)]   public uint ContextFlags;
+        [FieldOffset(156)] public uint Edi;
+        [FieldOffset(160)] public uint Esi;
+        [FieldOffset(164)] public uint Ebx;
+        [FieldOffset(168)] public uint Edx;
+        [FieldOffset(172)] public uint Ecx;
+        [FieldOffset(176)] public uint Eax;
+        [FieldOffset(180)] public uint Ebp;
+        [FieldOffset(184)] public uint Eip;
+        [FieldOffset(188)] public uint SegCs;
+        [FieldOffset(192)] public uint EFlags;
+        [FieldOffset(196)] public uint Esp;
+        [FieldOffset(200)] public uint SegSs;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool CreateProcess(string? app, string? cmd, IntPtr pa, IntPtr ta,
+        bool inherit, uint flags, IntPtr env, string? dir, ref STARTUPINFO si, out PROCESS_INFORMATION pi);
+
+    // DEBUG_EVENT is a variable union; we receive it into a raw buffer and parse offsets ourselves.
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool WaitForDebugEvent(byte[] lpDebugEvent, uint ms);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool ContinueDebugEvent(uint pid, uint tid, uint status);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool ReadProcessMemory(IntPtr h, IntPtr addr, byte[] buf, int size, out int read);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool WriteProcessMemory(IntPtr h, IntPtr addr, byte[] buf, int size, out int written);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool FlushInstructionCache(IntPtr h, IntPtr addr, int size);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool GetThreadContext(IntPtr hThread, ref CONTEXT ctx);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool SetThreadContext(IntPtr hThread, ref CONTEXT ctx);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool CloseHandle(IntPtr h);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool TerminateProcess(IntPtr h, uint code);
+}

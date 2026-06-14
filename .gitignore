@@ -1,0 +1,8 @@
+bin/
+obj/
+chm/
+map/
+*.user
+sample/**/obj/
+sample/**/map/
+sample/dbgtest/dbgtest.exe
