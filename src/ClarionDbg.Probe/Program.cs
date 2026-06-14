@@ -49,6 +49,7 @@ Console.WriteLine($"break    : line {bpLine} -> rva 0x{info.LineToRva(bpLine):X}
 Console.WriteLine(new string('-', 60));
 
 var done = new ManualResetEventSlim();
+int stepCounter = 0;
 var sess = new DebugSession(exe, pe, info);
 sess.Log += s => Console.WriteLine("[engine] " + s);
 sess.Exited += c => { Console.WriteLine($"[exit] code {c}"); done.Set(); };
@@ -66,7 +67,15 @@ sess.Stopped += info2 =>
     Console.WriteLine("globals (typed, live values):");
     foreach (var v in info2.Globals)
         Console.WriteLine($"   {v.Name,-12} {v.TypeName,-14} = {v.Display}");
-    if (Environment.GetEnvironmentVariable("CLARIONDBG_ONCE") == "1")
+    int stepsLeft = int.TryParse(Environment.GetEnvironmentVariable("CLARIONDBG_STEPS"), out var sc) ? sc : 0;
+    string kind = Environment.GetEnvironmentVariable("CLARIONDBG_STEPKIND") ?? "into";
+    if (stepsLeft > 0 && stepCounter < stepsLeft)
+    {
+        stepCounter++;
+        Console.WriteLine($"   [{kind} step {stepCounter}]");
+        if (kind == "over") sess.StepOver(); else if (kind == "out") sess.StepOut(); else sess.StepInto();
+    }
+    else if (Environment.GetEnvironmentVariable("CLARIONDBG_ONCE") == "1")
     { Console.WriteLine("\n(terminating after first hit)"); sess.Terminate(); }
     else { Console.WriteLine("\n(continuing…)"); sess.Continue(); }
 };

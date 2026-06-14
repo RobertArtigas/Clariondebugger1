@@ -18,6 +18,9 @@
                 <Button x:Name="BtnOpen" Click="BtnOpen_Click" Content="Open EXE…"/>
                 <Border Width="1" Background="{StaticResource Border}" Margin="8,2"/>
                 <Button x:Name="BtnGo" Click="BtnGo_Click" Content="▶  Go  (F5)"/>
+                <Button x:Name="BtnStepOver" Click="BtnStepOver_Click" Content="⤼ Over (F10)" IsEnabled="False"/>
+                <Button x:Name="BtnStepInto" Click="BtnStepInto_Click" Content="⤓ Into (F11)" IsEnabled="False"/>
+                <Button x:Name="BtnStepOut" Click="BtnStepOut_Click" Content="⤒ Out (⇧F11)" IsEnabled="False"/>
                 <Button x:Name="BtnStop" Click="BtnStop_Click" Content="■  Stop" IsEnabled="False"/>
                 <Border Width="1" Background="{StaticResource Border}" Margin="8,2"/>
                 <TextBlock Text="Click the gutter to set a breakpoint" Foreground="{StaticResource FgDim}"

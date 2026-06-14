@@ -131,7 +131,7 @@ public sealed class TswdInfo
         int nameSz = _symBase - _nameBase;
         var seenProc = new HashSet<uint>();
         var seenGlobal = new HashSet<uint>();
-        for (int o = _symBase; o + 25 < _symEnd; o++)
+        for (int o = _symBase; o < _symEnd; o++)   // reads are bounds-safe (RU32/RB)
         {
             byte tag = _b[o];
             if (tag == 0x05)   // procedure
@@ -139,16 +139,18 @@ public sealed class TswdInfo
                 int nameOff = (int)RU32(o + 5);
                 uint entry = RU32(o + 9);
                 int lcount = (int)RU32(o + 21);
-                if (nameOff > 0 && nameOff < nameSz && pe.IsCodeRva(entry) && lcount is >= 0 and < 2000
-                    && seenProc.Add(entry))
-                {
+                if (nameOff >= 0 && nameOff < nameSz && pe.IsCodeRva(entry) && lcount is >= 0 and < 2000)
+                {                                       // nameOff may be 0 (e.g. _main is the first name)
                     string nm = Name(nameOff);
                     if (CleanName(nm))
                     {
                         try
                         {
                             var p = ParseProc(o - _symBase - 4);
-                            if (p.Name == nm) { p.StreamOffset = o; Procs.Add(p); Procedures.Add((p.Name, p.EntryRva)); }
+                            // dedup only on a fully-valid record so a bogus same-entry record
+                            // can't consume the slot before the real procedure
+                            if (p.Name == nm && seenProc.Add(entry))
+                            { p.StreamOffset = o; Procs.Add(p); Procedures.Add((p.Name, p.EntryRva)); }
                         }
                         catch { }
                     }
@@ -393,6 +395,18 @@ public sealed class TswdInfo
         uint? best = null; int bestLine = int.MaxValue;
         foreach (var (l, r) in m.Lines) if (l >= line && l < bestLine) { bestLine = l; best = r; }
         return best;
+    }
+
+    /// <summary>Code RVA range [entry, nextProcEntry) of the procedure containing rva.</summary>
+    public (uint Lo, uint Hi) ProcRange(uint rva)
+    {
+        uint lo = 0, hi = uint.MaxValue;   // Procs are sorted by EntryRva
+        for (int i = 0; i < Procs.Count; i++)
+        {
+            if (Procs[i].EntryRva <= rva) { lo = Procs[i].EntryRva; hi = i + 1 < Procs.Count ? Procs[i + 1].EntryRva : uint.MaxValue; }
+            else break;
+        }
+        return (lo, hi);
     }
 
     /// <summary>The procedure whose code range contains the given RVA.</summary>

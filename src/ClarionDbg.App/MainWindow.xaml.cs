@@ -241,6 +241,15 @@ public partial class MainWindow : Window
         ClearCurrentLine(); SetState(State.Idle); Status("Stopped.");
     }
 
+    void Step(Action step, string what)
+    {
+        if (_state != State.Stopped || _session == null) return;
+        ClearCurrentLine(); step(); SetState(State.Running); Status(what + "…");
+    }
+    void BtnStepOver_Click(object sender, RoutedEventArgs e) => Step(_session!.StepOver, "Step over");
+    void BtnStepInto_Click(object sender, RoutedEventArgs e) => Step(_session!.StepInto, "Step into");
+    void BtnStepOut_Click(object sender, RoutedEventArgs e) => Step(_session!.StepOut, "Step out");
+
     List<ProcItem> _allProcs = new();
 
     void FilterProcs(string text)
@@ -283,6 +292,7 @@ public partial class MainWindow : Window
         _state = s;
         BtnGo.IsEnabled = s != State.Running;
         BtnStop.IsEnabled = s != State.Idle;
+        BtnStepOver.IsEnabled = BtnStepInto.IsEnabled = BtnStepOut.IsEnabled = s == State.Stopped;
         BtnGo.Content = s == State.Stopped ? "▶  Continue  (F5)" : "▶  Go  (F5)";
     }
 
@@ -291,7 +301,14 @@ public partial class MainWindow : Window
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        if (e.Key == Key.F5) { BtnGo_Click(this, new RoutedEventArgs()); e.Handled = true; }
+        switch (e.Key)
+        {
+            case Key.F5: BtnGo_Click(this, new RoutedEventArgs()); e.Handled = true; break;
+            case Key.F10: BtnStepOver_Click(this, new RoutedEventArgs()); e.Handled = true; break;
+            case Key.F11 when (Keyboard.Modifiers & ModifierKeys.Shift) != 0:
+                BtnStepOut_Click(this, new RoutedEventArgs()); e.Handled = true; break;
+            case Key.F11: BtnStepInto_Click(this, new RoutedEventArgs()); e.Handled = true; break;
+        }
         base.OnKeyDown(e);
     }
 }

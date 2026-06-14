@@ -30,6 +30,17 @@ public sealed class DebugSession
     volatile bool _terminate;
     Thread? _worker;
 
+    // ---- stepping ----
+    enum Act { Continue, Into, Over, Out, Terminate }
+    volatile Act _act = Act.Continue;
+    enum StepKind { None, Into, Over }
+    StepKind _stepping = StepKind.None;
+    string? _stepModule; int _stepLine;
+    uint _stepEbp, _stepLo, _stepHi;
+    int _stepGuard;                                         // bound single-step count
+    readonly Dictionary<uint, byte> _tempBps = new();       // one-shot step breakpoints
+    readonly HashSet<uint> _overReturns = new();            // temp bps that are step-over-call returns
+
     public DebugSession(string exePath, PeImage pe, TswdInfo info)
     { _exePath = exePath; _pe = pe; _info = info; }
 
@@ -42,8 +53,11 @@ public sealed class DebugSession
         _worker.Start();
     }
 
-    public void Continue() => _resume.Set();
-    public void Terminate() { _terminate = true; _resume.Set(); }
+    public void Continue() { _act = Act.Continue; _resume.Set(); }
+    public void StepInto() { _act = Act.Into; _resume.Set(); }
+    public void StepOver() { _act = Act.Over; _resume.Set(); }
+    public void StepOut()  { _act = Act.Out;  _resume.Set(); }
+    public void Terminate() { _act = Act.Terminate; _terminate = true; _resume.Set(); }
 
     void Run()
     {
@@ -99,45 +113,124 @@ public sealed class DebugSession
     {
         uint exCode = U32(buf, 12);
         uint exAddr = U32(buf, 24);
+        var hThread = _threads.TryGetValue(tid, out var h) ? h : _hThread;
 
-        if (exCode == Native.EXCEPTION_SINGLE_STEP && _reArm is uint rearm)
+        // ---- single-step (stepping or breakpoint re-arm) ----
+        if (exCode == Native.EXCEPTION_SINGLE_STEP)
         {
-            WriteByte(rearm, 0xCC);              // restore the breakpoint we stepped over
-            _reArm = null;
-            return Native.DBG_CONTINUE;
+            if (_reArm is uint rearm) { WriteByte(rearm, 0xCC); _reArm = null; }
+            if (_stepping == StepKind.None) return Native.DBG_CONTINUE;
+            var ctx = GetCtx(hThread);
+            return HandleStep(ref ctx, hThread);
         }
 
-        if (exCode == Native.EXCEPTION_BREAKPOINT && _breakpoints.ContainsKey(exAddr))
+        // ---- breakpoint ----
+        if (exCode == Native.EXCEPTION_BREAKPOINT)
         {
-            var hThread = _threads.TryGetValue(tid, out var h) ? h : _hThread;
-            // restore original byte and rewind EIP onto the instruction
-            WriteByte(exAddr, _breakpoints[exAddr]);
-            var ctx = new Native.CONTEXT { ContextFlags = Native.CONTEXT_FULL };
-            Native.GetThreadContext(hThread, ref ctx);
-            ctx.Eip = exAddr;
-            Native.SetThreadContext(hThread, ref ctx);
-
-            ReportStop(ctx, "breakpoint");
-
-            // wait for the UI to tell us to continue
-            _resume.WaitOne();
-            if (_terminate)
+            // one-shot stepping breakpoint (step-over call return, or step-out target)
+            if (_tempBps.TryGetValue(exAddr, out byte torig))
             {
-                Native.TerminateProcess(_hProcess, 0);
-                return Native.DBG_CONTINUE;
+                WriteByte(exAddr, torig);
+                _tempBps.Remove(exAddr);
+                var ctx = GetCtx(hThread);
+                ctx.Eip = exAddr; Native.SetThreadContext(hThread, ref ctx);
+                if (_overReturns.Remove(exAddr)) { Trap(ref ctx, hThread); return Native.DBG_CONTINUE; }
+                return Stop(ref ctx, hThread, 0);
             }
-            // single-step over the original instruction, then re-arm 0xCC
-            ctx.ContextFlags = Native.CONTEXT_FULL;
-            Native.GetThreadContext(hThread, ref ctx);
-            ctx.EFlags |= 0x100; // trap flag
-            Native.SetThreadContext(hThread, ref ctx);
-            _reArm = exAddr;
-            return Native.DBG_CONTINUE;
+            // user breakpoint
+            if (_breakpoints.TryGetValue(exAddr, out byte orig))
+            {
+                WriteByte(exAddr, orig);
+                var ctx = GetCtx(hThread);
+                ctx.Eip = exAddr; Native.SetThreadContext(hThread, ref ctx);
+                return Stop(ref ctx, hThread, exAddr);
+            }
+            return Native.DBG_CONTINUE;   // initial loader breakpoint etc.
         }
 
-        // not ours (e.g. initial loader breakpoint) — for the very first BP, swallow it
-        if (exCode == Native.EXCEPTION_BREAKPOINT) return Native.DBG_CONTINUE;
         return Native.DBG_EXCEPTION_NOT_HANDLED;
+    }
+
+    /// <summary>Report the stop to the UI, wait for the next action, and set up the resume.</summary>
+    uint Stop(ref Native.CONTEXT ctx, IntPtr hThread, uint userBpAddr)
+    {
+        _stepping = StepKind.None;
+        ReportStop(ctx, userBpAddr != 0 ? "breakpoint" : "step");
+        _resume.WaitOne();
+        if (_act == Act.Terminate) { Native.TerminateProcess(_hProcess, 0); return Native.DBG_CONTINUE; }
+
+        ctx = GetCtx(hThread);
+        uint eipRva = ctx.Eip - _base;
+        (_stepLo, _stepHi) = _info.ProcRange(eipRva);
+        _stepEbp = ctx.Ebp; _stepGuard = 0;
+        var l = _info.Locate(eipRva); _stepModule = l?.Module; _stepLine = l?.Line ?? -1;
+
+        bool needReArm = userBpAddr != 0;
+        if (needReArm) _reArm = userBpAddr;
+
+        switch (_act)
+        {
+            case Act.Into: _stepping = StepKind.Into; Trap(ref ctx, hThread); break;
+            case Act.Over: _stepping = StepKind.Over; Trap(ref ctx, hThread); break;
+            case Act.Out:
+                uint ret = ReadDword(ctx.Ebp + 4);
+                if (ret != 0 && _pe.IsCodeRva(ret - _base)) SetTempBp(ret, false);
+                if (needReArm) Trap(ref ctx, hThread);   // step past the bp, re-arm, then run to ret
+                break;
+            default:                                     // Continue
+                if (needReArm) Trap(ref ctx, hThread);
+                break;
+        }
+        return Native.DBG_CONTINUE;
+    }
+
+    /// <summary>Single-step driver: decide stop / keep-stepping / run-the-call.</summary>
+    uint HandleStep(ref Native.CONTEXT ctx, IntPtr hThread)
+    {
+        if (++_stepGuard > 300000) return Stop(ref ctx, hThread, 0);   // safety bound
+        uint eipRva = ctx.Eip - _base;
+        bool inText = _pe.IsCodeRva(eipRva);
+        bool inProc = inText && eipRva >= _stepLo && eipRva < _stepHi;
+        var l = inText ? _info.Locate(eipRva) : null;
+        bool newLine = l is { } x && (x.Module != _stepModule || x.Line != _stepLine);
+
+        if (_stepping == StepKind.Over && !inProc)
+        {
+            // left the procedure (a call) — run it to completion, then resume stepping
+            uint ret = ReadDword(ctx.Esp);
+            if (RetInProc(ret)) { SetTempBp(ret, true); return Native.DBG_CONTINUE; }
+            Trap(ref ctx, hThread); return Native.DBG_CONTINUE;
+        }
+        if (_stepping == StepKind.Into && !inText)
+        {
+            // stepped into runtime (ClaRUN) — run to return rather than single-step library code
+            uint ret = ReadDword(ctx.Esp);
+            if (ret != 0 && _pe.IsCodeRva(ret - _base)) { SetTempBp(ret, true); return Native.DBG_CONTINUE; }
+            Trap(ref ctx, hThread); return Native.DBG_CONTINUE;
+        }
+        if (inText && newLine) return Stop(ref ctx, hThread, 0);
+        Trap(ref ctx, hThread);
+        return Native.DBG_CONTINUE;
+    }
+
+    bool RetInProc(uint ret) => ret != 0 && _pe.IsCodeRva(ret - _base)
+                                && (ret - _base) >= _stepLo && (ret - _base) < _stepHi;
+
+    Native.CONTEXT GetCtx(IntPtr hThread)
+    { var c = new Native.CONTEXT { ContextFlags = Native.CONTEXT_FULL }; Native.GetThreadContext(hThread, ref c); return c; }
+
+    void Trap(ref Native.CONTEXT ctx, IntPtr hThread)
+    {
+        ctx.ContextFlags = Native.CONTEXT_FULL;
+        Native.GetThreadContext(hThread, ref ctx);
+        ctx.EFlags |= 0x100;                     // trap flag → one single-step
+        Native.SetThreadContext(hThread, ref ctx);
+    }
+
+    void SetTempBp(uint va, bool overReturn)
+    {
+        if (!_tempBps.ContainsKey(va)) { _tempBps[va] = ReadByte(va); WriteByte(va, 0xCC); }
+        if (overReturn) _overReturns.Add(va);
     }
 
     void ArmBreakpoints()
