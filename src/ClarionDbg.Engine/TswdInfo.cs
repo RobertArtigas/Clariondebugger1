@@ -21,6 +21,7 @@ public sealed class TswdProc
     public uint EntryRva;
     public ClaType? RetType;
     public List<TswdSymbol> Locals = new();
+    public int StreamOffset;   // blob offset of this proc's record tag (for local-scope assignment)
 }
 
 public sealed class TswdModule
@@ -147,7 +148,7 @@ public sealed class TswdInfo
                         try
                         {
                             var p = ParseProc(o - _symBase - 4);
-                            if (p.Name == nm) { Procs.Add(p); Procedures.Add((p.Name, p.EntryRva)); }
+                            if (p.Name == nm) { p.StreamOffset = o; Procs.Add(p); Procedures.Add((p.Name, p.EntryRva)); }
                         }
                         catch { }
                     }
@@ -190,6 +191,8 @@ public sealed class TswdInfo
                 sz = (int)Math.Min(Globals[i + 1].Rva - g.Rva, 512);
             g.DisplaySize = Math.Max(sz, 1);
         }
+
+        ScanLocals();
     }
 
     static bool CleanName(string s) =>
@@ -223,39 +226,63 @@ public sealed class TswdInfo
         int retTypeRef = (int)RU32(b + 5);
         int nameOff = (int)RU32(b + 9);
         uint entry = RU32(b + 13);
-        int localCount = (int)RU32(b + 25);
         var proc = new TswdProc { Name = Name(nameOff), EntryRva = entry };
         if (ValidRef(retTypeRef) && retTypeRef > 0) proc.RetType = ParseType(retTypeRef);
-        var seen = new HashSet<string>();
-        for (int i = 0; i < localCount && i < 1024; i++)
-        {
-            int lref = (int)RU32(b + 29 + 4 * i);
-            // The local-record reference can point either at the record (tag at ref+4, as in
-            // simple procs) or directly at the tag (tag at ref+0, seen in threaded ABC procs).
-            // Try both and accept whichever yields a clean variable record.
-            TswdSymbol? sym = null;
-            foreach (int cand in new[] { lref, lref - 4 })
-            {
-                if (!ValidRef(cand)) continue;
-                byte tg = RB(_symBase + cand + 4);
-                if (tg != 0x04 && tg != 0x0c) continue;
-                var s = ParseVar(cand);
-                if (CleanName(s.Name)) { sym = s; break; }
-            }
-            if (sym == null || !seen.Add(sym.Name)) continue;
+        return proc;   // locals are filled in by ScanLocals (scope-grouped)
+    }
 
-            // Threaded ABC procedures allocate locals statically (data RVA); simple procs use
-            // an EBP-relative frame offset.
-            uint asRva = (uint)sym.FrameOffset;
-            if (_pe != null && _pe.IsDataRva(asRva))
-            {
-                sym.IsStatic = true; sym.Rva = asRva; sym.Threaded = _pe.IsTlsRva(asRva); sym.FrameOffset = 0;
-                proc.Locals.Add(sym);
-            }
-            else if (Math.Abs(sym.FrameOffset) < 0x10000)
-                proc.Locals.Add(sym);
+    /// <summary>
+    /// Local variables are NOT reliably reachable from the proc record's ref list. Instead each
+    /// local is a 17-byte record `04 | typeRef | nameOff | frameOffset | scopeRef`, and all locals
+    /// of one procedure share a scopeRef. We collect them by scope and attach each scope-group to
+    /// the procedure whose record immediately precedes the group's first local in the stream.
+    /// </summary>
+    void ScanLocals()
+    {
+        int nameSz = _symBase - _nameBase;
+        var groups = new Dictionary<int, List<(int Stream, TswdSymbol Sym)>>();
+        for (int p = _symBase; p + 17 <= _symEnd; p++)
+        {
+            if (_b[p] != 0x04) continue;
+            int typeRef = (int)RU32(p + 1);
+            int nameOff = (int)RU32(p + 5);
+            int off = RI32(p + 9);
+            int scope = (int)RU32(p + 13);
+            if (nameOff <= 0 || nameOff >= nameSz) continue;
+            if (Math.Abs(off) >= 0x40000) continue;          // locals have small EBP offsets (not data RVAs)
+            if (!ValidRef(typeRef) || !ValidRef(scope)) continue;
+            string nm = Name(nameOff);
+            if (!CleanName(nm)) continue;
+            var sym = new TswdSymbol { Name = nm, FrameOffset = off, Type = ParseType(typeRef) };
+            if (!groups.TryGetValue(scope, out var list)) groups[scope] = list = new();
+            list.Add((p, sym));
+            p += 16;
         }
-        return proc;
+
+        var byStream = Procs.OrderBy(pr => pr.StreamOffset).ToList();
+        foreach (var g in groups.Values)
+        {
+            int minStream = g.Min(x => x.Stream);
+            TswdProc? owner = null;
+            foreach (var pr in byStream) { if (pr.StreamOffset <= minStream) owner = pr; else break; }
+            if (owner == null) continue;
+            var seen = new HashSet<string>();
+            foreach (var (_, sym) in g.OrderBy(x => x.Stream))
+                if (seen.Add(sym.Name)) owner.Locals.Add(sym);
+        }
+
+        // derive a display size for each local from the gap to the next (offset-tiled) local
+        foreach (var pr in Procs)
+        {
+            if (pr.Locals.Count == 0) continue;
+            var ordered = pr.Locals.OrderBy(l => l.FrameOffset).ToList();
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                if (ordered[i].Type.Size > 0) { ordered[i].DisplaySize = ordered[i].Type.Size; continue; }
+                int next = i + 1 < ordered.Count ? ordered[i + 1].FrameOffset : ordered[i].FrameOffset + 64;
+                ordered[i].DisplaySize = Math.Clamp(next - ordered[i].FrameOffset, 1, 512);
+            }
+        }
     }
 
     ClaType ParseType(int typeRef)
