@@ -356,7 +356,11 @@ public sealed class DebugSession
         foreach (var x in b) { if (x >= 32 && x < 127) printable++; else break; }
 
         string disp; WriteKind kind;
-        if (printable >= 2) { disp = "'" + (ascii.Length > 48 ? ascii[..48] + "…" : ascii) + "'"; kind = WriteKind.Str; }
+        if (printable >= 2)
+        {
+            string s = ascii.TrimEnd(' ', '·');   // drop Clarion's trailing space/null padding for readability
+            disp = "'" + (s.Length > 48 ? s[..48] + "…" : s) + "'"; kind = WriteKind.Str;
+        }
         else if (b.Length >= 4) { disp = BinaryPrimitives.ReadInt32LittleEndian(b).ToString(); kind = WriteKind.Int; }
         else if (b.Length == 2) { disp = BinaryPrimitives.ReadInt16LittleEndian(b).ToString(); kind = WriteKind.Int; }
         else { disp = b[0].ToString(); kind = WriteKind.Int; }
