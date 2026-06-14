@@ -5,6 +5,21 @@ A clean, modern replacement for the crash-prone debugger built into Clarion. It 
 `TSWD` debug information and driving the process with the standard **Win32 Debugging API** —
 no dependency on the proprietary `D32` engine.
 
+## Download
+
+Grab the latest build from **[Releases](https://github.com/robertorenz/Clariondebugger1/releases)**:
+
+| Asset | What it is |
+|-------|-----------|
+| `ClarionDebuggerSetup-x.y.z.exe` | Installer — per-user, no admin needed; adds Start-menu / desktop shortcuts and an uninstaller |
+| `ClarionDebugger-x.y.z-portable-win-x86.zip` | Portable — a single self-contained `ClarionDbg.exe`; just unzip and run |
+
+Both are **self-contained** (the .NET 8 runtime + WPF are bundled — nothing to install). The app
+is 32-bit to match Clarion's 32-bit EXEs and runs on 64-bit Windows.
+
+To rebuild the release artifacts: `powershell installer\build-release.ps1` (needs the .NET 8 SDK
+and [Inno Setup 6](https://jrsoftware.org/isinfo.php)).
+
 ## Features
 
 A working source-level debugger for real Clarion apps (tested against a full multi-module

@@ -7,3 +7,5 @@ sample/**/obj/
 sample/**/map/
 sample/dbgtest/dbgtest.exe
 run/
+installer/portable/
+installer/output/
