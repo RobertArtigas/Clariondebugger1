@@ -1,0 +1,44 @@
+<Window x:Class="ClarionDbg.App.DisassemblyWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Disassembly" Height="560" Width="720" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource Panel}" Foreground="{StaticResource Fg}" FontFamily="Segoe UI">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <DockPanel Grid.Row="0" Margin="0,0,0,8">
+            <TextBlock Text="Address" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <Button DockPanel.Dock="Right" Content="Refresh" Width="80" Click="Refresh_Click"/>
+            <CheckBox x:Name="ChkFollow" DockPanel.Dock="Right" Content="Follow IP" IsChecked="True"
+                      Foreground="{StaticResource Fg}" VerticalAlignment="Center" Margin="8,0"/>
+            <TextBox x:Name="TxtAddr" Padding="5,3" FontFamily="Consolas" FontSize="13"
+                     Background="{StaticResource Bg}" Foreground="{StaticResource Fg}"
+                     BorderBrush="{StaticResource Accent}" BorderThickness="1" KeyDown="Addr_KeyDown"/>
+        </DockPanel>
+        <DataGrid x:Name="Grid" Grid.Row="1" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
+                  Background="Transparent" Foreground="{StaticResource Fg}" BorderBrush="{StaticResource Border}"
+                  GridLinesVisibility="None" RowBackground="Transparent" HeadersVisibility="Column"
+                  FontFamily="Consolas" FontSize="12.5">
+            <DataGrid.RowStyle>
+                <Style TargetType="DataGridRow">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                            <Setter Property="Background" Value="{StaticResource CurLine}"/>
+                            <Setter Property="FontWeight" Value="SemiBold"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.RowStyle>
+            <DataGrid.Columns>
+                <DataGridTextColumn Header=" " Binding="{Binding Marker}" Width="24"/>
+                <DataGridTextColumn Header="Address" Binding="{Binding Addr}" Width="90"/>
+                <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes}" Width="160"/>
+                <DataGridTextColumn Header="Instruction" Binding="{Binding Text}" Width="*"/>
+                <DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="130"
+                                    FontStyle="Italic" Foreground="{StaticResource FgDim}"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</Window>

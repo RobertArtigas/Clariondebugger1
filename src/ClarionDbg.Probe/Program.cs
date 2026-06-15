@@ -92,6 +92,12 @@ sess.Stopped += info2 =>
         }
     }
 
+    if (Environment.GetEnvironmentVariable("CLARIONDBG_DISASM") == "1")
+    {
+        Console.WriteLine("disasm @ EIP:");
+        foreach (var d in sess.Disassemble(info2.Eip, 10))
+            Console.WriteLine($"   0x{d.Addr:X8}  {d.Bytes,-22} {d.Text}" + (d.Source != null ? $"    ; {d.Source}" : ""));
+    }
     if (Environment.GetEnvironmentVariable("CLARIONDBG_MEM") == "1" && info2.Globals.Count > 0)
     {
         var g = info2.Globals[0];

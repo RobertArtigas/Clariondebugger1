@@ -720,9 +720,50 @@ public sealed class DebugSession
         return p != null ? p.Name : $"0x{absAddr:X8}";
     }
 
+    /// <summary>Read and format a value at an address as an untyped field (for the array viewer).</summary>
+    public VarValue ReadValueAt(string name, uint addr, int size)
+        => ReadVar(name, addr, new ClaType { Kind = TypeKind.Unknown }, size);
+
     /// <summary>Read a block of process memory (for the hex/memory view). Empty if not running.</summary>
     public byte[] ReadMemory(uint addr, int len)
         => _hProcess == IntPtr.Zero || len <= 0 ? Array.Empty<byte>() : ReadBytes(addr, Math.Clamp(len, 1, 1 << 20));
+
+    public record DisasmLine(uint Addr, string Bytes, string Text, string? Source);
+
+    /// <summary>Disassemble <paramref name="count"/> x86 instructions starting at <paramref name="addr"/>,
+    /// annotating each with its source line where known.</summary>
+    public IReadOnlyList<DisasmLine> Disassemble(uint addr, int count)
+    {
+        var lines = new List<DisasmLine>();
+        if (_hProcess == IntPtr.Zero || count <= 0) return lines;
+        var code = ReadBytes(addr, Math.Clamp(count * 8 + 16, 16, 4096));   // ~8 bytes/insn upper bound
+        var reader = new Iced.Intel.ByteArrayCodeReader(code);
+        var decoder = Iced.Intel.Decoder.Create(32, reader);
+        decoder.IP = addr;
+        var formatter = new Iced.Intel.NasmFormatter();
+        var output = new Iced.Intel.StringOutput();
+        string? lastSrc = null;
+        for (int i = 0; i < count && reader.CanReadByte; i++)
+        {
+            var insn = decoder.Decode();
+            if (insn.IsInvalid) break;
+            uint ip = (uint)insn.IP;
+            output.Reset(); formatter.Format(insn, output);
+            int len = insn.Length;
+            int off = (int)(ip - addr);
+            string bytes = off >= 0 && off + len <= code.Length
+                ? BitConverter.ToString(code, off, len).Replace("-", " ") : "";
+            // source annotation: only when the line changes (mirrors how the source view groups bytes)
+            string? src = null;
+            var loc = _pe.IsCodeRva(ip - _base) ? _info.Locate(ip - _base) : null;
+            if (loc is { } l) { var tag = $"{l.Module}:{l.Line}"; if (tag != lastSrc) { src = tag; lastSrc = tag; } }
+            lines.Add(new DisasmLine(ip, bytes, output.ToStringAndReset(), src));
+        }
+        return lines;
+    }
+
+    public uint CurrentEip => _stoppedTid != 0 && _threads.TryGetValue(_stoppedTid, out var h)
+        ? GetCtx(h).Eip : 0;
 
     /// <summary>Move the instruction pointer to another line in the current procedure (set-next-statement).
     /// Only safe within the same procedure (the frame/locals stay valid). Refreshes the UI at the new line.</summary>

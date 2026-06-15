@@ -1,6 +1,7 @@
 <Window x:Class="ClarionDbg.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:ClarionDbg.App"
         Title="Clarion Debugger" Height="760" Width="1200"
         Background="{StaticResource Bg}" Foreground="{StaticResource Fg}"
         FontFamily="Segoe UI" WindowStartupLocation="CenterScreen">
@@ -28,6 +29,8 @@
                 <Border Width="1" Background="{StaticResource Border}" Margin="8,2"/>
                 <Button x:Name="BtnBreakpoints" Click="BtnBreakpoints_Click" Content="● Breakpoints…"
                         ToolTip="Manage breakpoints: enable/disable, conditions, hit counts, tracepoints"/>
+                <Button x:Name="BtnDisasm" Click="BtnDisasm_Click" Content="⟨/⟩ Disassembly"
+                        ToolTip="Show disassembly at the current instruction pointer"/>
                 <Border Width="1" Background="{StaticResource Border}" Margin="8,2"/>
                 <CheckBox x:Name="ChkBreakCrash" Content="Break on crash" IsChecked="True"
                           Foreground="{StaticResource Fg}" VerticalAlignment="Center" Margin="4,0" FontSize="12"
@@ -128,7 +131,8 @@
                                         </Border>
                                         <TextBlock Grid.Column="1" Text="{Binding LineNo}" Foreground="{StaticResource FgDim}"
                                                    FontFamily="Consolas" FontSize="13" TextAlignment="Right" Margin="0,0,8,0"/>
-                                        <TextBlock Grid.Column="2" Text="{Binding Text}" Foreground="{StaticResource Fg}"
+                                        <TextBlock Grid.Column="2" local:SyntaxHighlight.Text="{Binding Text}"
+                                                   Foreground="{StaticResource Fg}"
                                                    FontFamily="Consolas" FontSize="13" TextWrapping="NoWrap"/>
                                     </Grid>
                                 </Border>
@@ -209,6 +213,7 @@
                             <MenuItem Header="Copy value" Click="CopyValue_Click"/>
                             <MenuItem Header="Copy name" Click="CopyName_Click"/>
                             <MenuItem Header="View memory…" Click="ViewMemory_Click"/>
+                            <MenuItem Header="View as array…" Click="ViewArray_Click"/>
                             <Separator/>
                             <MenuItem Header="Remove watch" Click="RemoveWatch_Click"/>
                         </ContextMenu>
@@ -232,6 +237,7 @@
                             <MenuItem Header="Copy value" Click="CopyValue_Click"/>
                             <MenuItem Header="Copy name" Click="CopyName_Click"/>
                             <MenuItem Header="View memory…" Click="ViewMemory_Click"/>
+                            <MenuItem Header="View as array…" Click="ViewArray_Click"/>
                         </ContextMenu>
                     </DataGrid.ContextMenu>
                     <DataGrid.Columns>
@@ -254,6 +260,7 @@
                             <MenuItem Header="Copy value" Click="CopyValue_Click"/>
                             <MenuItem Header="Copy name" Click="CopyName_Click"/>
                             <MenuItem Header="View memory…" Click="ViewMemory_Click"/>
+                            <MenuItem Header="View as array…" Click="ViewArray_Click"/>
                         </ContextMenu>
                     </DataGrid.ContextMenu>
                     <DataGrid.Columns>

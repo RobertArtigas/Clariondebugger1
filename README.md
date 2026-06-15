@@ -58,6 +58,13 @@ ABC application — `School`, 54 modules):
   - **Breakpoint manager** — a window to enable/disable, edit conditions / hit counts /
     tracepoint logs, see hit counts, and remove breakpoints; all editable live while running.
   - **Persistence** — breakpoints are saved per-EXE and restored next time you open it.
+- **Disassembly view** — an x86 disassembly window (powered by Iced) at the current instruction
+  pointer, with byte columns, source-line annotations, and the current instruction highlighted;
+  navigate to any address, auto-follows the IP.
+- **Syntax highlighting** — the source view colorizes Clarion keywords, strings, comments,
+  numbers, and column-1 labels (professional palette, no purple).
+- **Array (DIM) viewer** — right-click a `DIM(...)` variable → *View as array* lists each element
+  with its address and value.
 - **Memory / hex view** — right-click a variable → *View memory* opens a live hex+ASCII dump at
   its address; navigate to any address, auto-refreshes while running.
 - **DATE / TIME formatting** — Clarion `DATE` (days since 1800-12-28) and `TIME` (centiseconds)
@@ -144,6 +151,11 @@ MSBuild.exe sample/dbgtest/dbgtest.cwproj /p:Configuration=Debug `
       sidesteps the undecoded ABC binary type tree entirely for display purposes.
 - [ ] Decode ABC's binary global type tree (the `0x03` wrapper) — only needed where source
       is unavailable; the source-based types cover the normal case.
+- [x] **Disassembly view** (Iced x86 decoder), **Clarion syntax highlighting** in the source
+      view, and an **array (DIM) viewer** that lists elements by address.
+- [ ] **Dictionary-driven file-buffer decode** (`STU:Record` field-by-field) — still blocked: it
+      needs a `.dct` parser *and* ClaRUN's thread-block internals to locate the live buffer (see
+      the `.cwtls` note below). The raw buffer is viewable via the memory/hex window today.
 - [ ] Live thread-local (`.cwtls`) file buffers (`STU:Record`): `.cwtls` is Clarion-managed
       (not Windows TLS — TLS data dir is empty), so live per-thread values need ClaRUN's
       thread-block internals. Currently shown from the image template, flagged `[tls]`.

@@ -226,6 +226,12 @@ public partial class MainWindow : Window
         Status($"Will break when {p.Name} is entered.");
     }
 
+    void BtnDisasm_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session == null) { Status("Start debugging first."); return; }
+        new DisassemblyWindow(_session) { Owner = this }.Show();
+    }
+
     // ---------- breakpoint manager ----------
     void BtnBreakpoints_Click(object sender, RoutedEventArgs e)
     {
@@ -693,6 +699,28 @@ public partial class MainWindow : Window
         if (_session == null) { Status("Start debugging first."); return; }
         if (MenuRow(sender) is not { } r || r.AddrValue == 0) { Status("This row has no readable address."); return; }
         new MemoryWindow(_session, r.AddrValue, r.Name) { Owner = this }.Show();
+    }
+
+    void ViewArray_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session == null) { Status("Start debugging first."); return; }
+        if (MenuRow(sender) is not { } r || r.AddrValue == 0) { Status("This row has no readable address."); return; }
+        int count = ParseDim(r.Type);
+        if (count <= 1) { Status($"{r.Name} isn't a DIM array (declared '{r.Type}')."); return; }
+        int elemSize = Math.Max(1, r.Size / count);
+        new ArrayWindow(_session, r.Name, r.Type, r.AddrValue, elemSize, count) { Owner = this }.Show();
+    }
+
+    /// <summary>Total element count from a declared type's DIM(...) clause (product of all dims), else 1.</summary>
+    static int ParseDim(string type)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(type, @"DIM\s*\(([^)]*)\)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!m.Success) return 1;
+        int total = 1; bool any = false;
+        foreach (var part in m.Groups[1].Value.Split(','))
+            if (int.TryParse(part.Trim(), out var d) && d > 0) { total *= d; any = true; }
+        return any ? total : 1;
     }
 
     void SetNextStatement_Click(object sender, RoutedEventArgs e)
