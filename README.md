@@ -58,6 +58,13 @@ ABC application — `School`, 54 modules):
   - **Breakpoint manager** — a window to enable/disable, edit conditions / hit counts /
     tracepoint logs, see hit counts, and remove breakpoints; all editable live while running.
   - **Persistence** — breakpoints are saved per-EXE and restored next time you open it.
+- **Memory / hex view** — right-click a variable → *View memory* opens a live hex+ASCII dump at
+  its address; navigate to any address, auto-refreshes while running.
+- **DATE / TIME formatting** — Clarion `DATE` (days since 1800-12-28) and `TIME` (centiseconds)
+  values are shown as `yyyy-MM-dd` / `HH:MM:SS.cc` (raw value kept in the tooltip).
+- **Copy value / name**, **set next statement** (right-click a source line to move the IP within
+  the current procedure), **attach to a running process** (lists processes that carry Clarion
+  debug info), and a **Recent EXEs** menu.
 - **Watch window** — type a variable name or an expression (`count > 5`, `mylocalvar1 = 'asdf'`)
   and watch its value; watches resolve against the selected stack frame and refresh live while
   the program runs and on every stop. Comparison expressions show `true`/`false`; double-click a
@@ -163,6 +170,10 @@ MSBuild.exe sample/dbgtest/dbgtest.cwproj /p:Configuration=Debug `
       writes the new value to process memory (`WriteProcessMemory`). Parses by kind: integer,
       float, string (space-padded like a Clarion STRING), or raw hex; re-reads to confirm.
 - [ ] Clarion ROUTINE frame sharing (routines reuse the parent procedure's locals).
+- [x] **Memory/hex view, DATE/TIME formatting, copy value, set-next-statement, attach to a
+      running process, and recent EXEs** — a live hex+ASCII memory window, Clarion DATE/TIME
+      rendering, clipboard copy, moving the instruction pointer within a procedure,
+      `DebugActiveProcess` attach (filtered to EXEs with `.cwdebug`), and a recent-files menu.
 - [x] **Watch window + expression evaluator** — watch variable names or comparison expressions,
       resolved against the selected frame's locals/params then globals, refreshed live and on
       each stop; booleans render `true`/`false`; watched variables are editable.

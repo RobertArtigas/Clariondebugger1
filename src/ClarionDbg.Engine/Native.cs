@@ -79,4 +79,11 @@ internal static class Native
     public static extern bool CloseHandle(IntPtr h);
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool TerminateProcess(IntPtr h, uint code);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool DebugActiveProcess(uint pid);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool DebugActiveProcessStop(uint pid);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool DebugSetProcessKillOnExit(bool kill);
 }

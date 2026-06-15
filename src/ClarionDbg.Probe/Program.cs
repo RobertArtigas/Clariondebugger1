@@ -92,6 +92,20 @@ sess.Stopped += info2 =>
         }
     }
 
+    if (Environment.GetEnvironmentVariable("CLARIONDBG_MEM") == "1" && info2.Globals.Count > 0)
+    {
+        var g = info2.Globals[0];
+        var mem = sess.ReadMemory(g.Addr, 32);
+        Console.WriteLine($"mem @ {g.Name} 0x{g.Addr:X8}: {BitConverter.ToString(mem)}");
+    }
+    var setNext = Environment.GetEnvironmentVariable("CLARIONDBG_SETNEXT");
+    if (setNext != null && int.TryParse(setNext, out var snLine))
+    {
+        Environment.SetEnvironmentVariable("CLARIONDBG_SETNEXT", null);   // clear first: ReportStop re-enters this handler
+        bool ok = sess.SetNextStatement(info2.Module ?? "", snLine);
+        Console.WriteLine($">>> SetNextStatement -> line {snLine}: {ok}");
+    }
+
     int stepsLeft = int.TryParse(Environment.GetEnvironmentVariable("CLARIONDBG_STEPS"), out var sc) ? sc : 0;
     string kind = Environment.GetEnvironmentVariable("CLARIONDBG_STEPKIND") ?? "into";
     if (stepsLeft > 0 && stepCounter < stepsLeft)

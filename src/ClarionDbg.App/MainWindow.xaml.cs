@@ -56,6 +56,7 @@ public partial class MainWindow : Window
         System.Windows.Data.CollectionViewSource.GetDefaultView(_localsRows).Filter = o => FilterMatch(o, _localsFilter);
         System.Windows.Data.CollectionViewSource.GetDefaultView(_vars).Filter = o => FilterMatch(o, _globalsFilter);
         _liveTimer.Tick += (_, _) => RefreshLive();
+        LoadRecent();
         Loaded += (_, _) =>
         {
             // optional: open an EXE passed on the command line, else the bundled sample
@@ -97,6 +98,7 @@ public partial class MainWindow : Window
                 $"({withLines.Count} with debug lines), {_info.Lines.Count} line entries, " +
                 $"{_info.Procedures.Count} procedures.");
 
+            AddRecent(path);
             LoadBreakpoints();   // restore saved breakpoints for this EXE
 
             // show the program's primary module
@@ -578,11 +580,38 @@ public partial class MainWindow : Window
     {
         // prefer the exact type as declared in the .clw source; else the engine's inferred type
         string type = LookupDeclType(module, v.Name) ?? v.TypeName;
+        string disp = v.Display, tip = v.Full;
+        if (TryFormatClarionDateTime(type, v.Display, out var pretty))
+        { tip = $"{type}  raw = {v.Display}\n{v.Full}"; disp = pretty; }
         return new VarRow
         {
-            Name = v.Name, Type = type, Value = v.Display, Address = $"0x{v.Addr:X8}",
-            Tip = v.Full, AddrValue = v.Addr, Size = v.Size, Kind = v.Kind
+            Name = v.Name, Type = type, Value = disp, Address = $"0x{v.Addr:X8}",
+            Tip = tip, AddrValue = v.Addr, Size = v.Size, Kind = v.Kind
         };
+    }
+
+    /// <summary>Render a Clarion DATE (days since 1800-12-28) or TIME (centiseconds since
+    /// midnight + 1) held in a LONG as a human-readable date/time.</summary>
+    static bool TryFormatClarionDateTime(string type, string raw, out string pretty)
+    {
+        pretty = "";
+        var t = type.TrimStart('&').ToUpperInvariant();
+        bool isDate = t.StartsWith("DATE"), isTime = t.StartsWith("TIME");
+        if ((!isDate && !isTime) || !long.TryParse(raw.Trim(), out var n)) return false;
+        try
+        {
+            if (isDate)
+            {
+                if (n <= 0 || n > 109207) return false;   // ~ year 1801..2099 sanity window
+                pretty = new DateTime(1800, 12, 28).AddDays(n).ToString("yyyy-MM-dd (ddd)");
+                return true;
+            }
+            long cs = n - 1;                               // Clarion midnight = 1
+            if (cs < 0 || cs >= 8640000) return false;
+            pretty = $"{cs / 360000:D2}:{cs / 6000 % 60:D2}:{cs / 100 % 60:D2}.{cs % 100:D2}";
+            return true;
+        }
+        catch { return false; }
     }
 
     // ---------- declared types from .clw source ----------
@@ -644,11 +673,97 @@ public partial class MainWindow : Window
     void GridVars_DoubleClick(object sender, MouseButtonEventArgs e) => EditRow(GridVars.SelectedItem as VarRow);
     void GridWatch_DoubleClick(object sender, MouseButtonEventArgs e) => EditRow(GridWatch.SelectedItem as VarRow);
 
-    void SetValue_Click(object sender, RoutedEventArgs e)
+    static VarRow? MenuRow(object sender) =>
+        (((sender as System.Windows.Controls.MenuItem)?.Parent as System.Windows.Controls.ContextMenu)
+            ?.PlacementTarget as System.Windows.Controls.DataGrid)?.SelectedItem as VarRow;
+
+    void SetValue_Click(object sender, RoutedEventArgs e) => EditRow(MenuRow(sender));
+
+    void CopyValue_Click(object sender, RoutedEventArgs e)
+    { if (MenuRow(sender) is { } r) TrySetClipboard(r.Value); }
+
+    void CopyName_Click(object sender, RoutedEventArgs e)
+    { if (MenuRow(sender) is { } r) TrySetClipboard(r.Name); }
+
+    static void TrySetClipboard(string s)
+    { try { System.Windows.Clipboard.SetText(s ?? ""); } catch { } }
+
+    void ViewMemory_Click(object sender, RoutedEventArgs e)
     {
-        var grid = ((sender as System.Windows.Controls.MenuItem)?.Parent as System.Windows.Controls.ContextMenu)
-                   ?.PlacementTarget as System.Windows.Controls.DataGrid;
-        EditRow(grid?.SelectedItem as VarRow);
+        if (_session == null) { Status("Start debugging first."); return; }
+        if (MenuRow(sender) is not { } r || r.AddrValue == 0) { Status("This row has no readable address."); return; }
+        new MemoryWindow(_session, r.AddrValue, r.Name) { Owner = this }.Show();
+    }
+
+    void SetNextStatement_Click(object sender, RoutedEventArgs e)
+    {
+        if (_state != State.Stopped || _session == null || _curModule == null)
+        { Status("Set next statement needs a stopped program."); return; }
+        if (MenuLine(sender) is not SourceLine sl) return;
+        int line = _info?.NearestCodeLine(_curModule, sl.LineNo) ?? sl.LineNo;
+        if (_session.SetNextStatement(_curModule, line)) Status($"Next statement set to {_curModule}:{line}.");
+        else Status("Couldn't set next statement here (must be code in the current procedure).");
+    }
+
+    // ---------- recent EXEs ----------
+    readonly List<string> _recent = new();
+
+    static string RecentPath()
+    {
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClarionDbg");
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, "recent.txt");
+    }
+
+    void LoadRecent()
+    {
+        try { if (File.Exists(RecentPath())) _recent.AddRange(File.ReadAllLines(RecentPath()).Where(File.Exists)); }
+        catch { }
+    }
+
+    void AddRecent(string path)
+    {
+        _recent.RemoveAll(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
+        _recent.Insert(0, path);
+        if (_recent.Count > 12) _recent.RemoveRange(12, _recent.Count - 12);
+        try { File.WriteAllLines(RecentPath(), _recent); } catch { }
+    }
+
+    void BtnRecent_Click(object sender, RoutedEventArgs e)
+    {
+        if (_recent.Count == 0) { Status("No recent files yet."); return; }
+        var menu = new System.Windows.Controls.ContextMenu();
+        foreach (var p in _recent)
+        {
+            var item = new System.Windows.Controls.MenuItem { Header = p };
+            string path = p;
+            item.Click += (_, _) => LoadExe(path);
+            menu.Items.Add(item);
+        }
+        menu.PlacementTarget = (UIElement)sender;
+        menu.IsOpen = true;
+    }
+
+    // ---------- attach to a running process ----------
+    void BtnAttach_Click(object sender, RoutedEventArgs e)
+    {
+        var win = new AttachWindow { Owner = this };
+        if (win.ShowDialog() != true || win.SelectedPid == 0 || win.SelectedPath == null) return;
+        LoadExe(win.SelectedPath);
+        if (_pe == null || _info == null) return;
+        if (_info.SourceFile == null && _info.ModuleCount == 0)
+        { Log("The selected process's EXE has no debug info."); return; }
+
+        _vars.Clear(); _localsRows.Clear(); LstStack.ItemsSource = null;
+        _session = new DebugSession(_exePath!, _pe, _info) { BreakOnException = ChkBreakCrash.IsChecked == true };
+        _session.Log += s => Dispatcher.Invoke(() => Log(s));
+        _session.Stopped += OnStopped;
+        _session.Exited += code => Dispatcher.Invoke(() =>
+        { Log($"--- debuggee exited (code {code}) ---"); ClearCurrentLine(); SetState(State.Idle); Status("Exited."); });
+        foreach (var b in _bps) b.HitCount = 0;
+        _session.Attach((uint)win.SelectedPid, _bps.ToList());
+        SetState(State.Running);
+        Status($"Attached to PID {win.SelectedPid}. Set breakpoints / break to inspect.");
     }
 
     // right-click selects the row under the cursor so the context menu targets it

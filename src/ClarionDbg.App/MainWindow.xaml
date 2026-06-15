@@ -16,6 +16,9 @@
         <Border Grid.Row="0" Background="{StaticResource Panel}" BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
             <StackPanel Orientation="Horizontal" Margin="8,6">
                 <Button x:Name="BtnOpen" Click="BtnOpen_Click" Content="Open EXE…"/>
+                <Button x:Name="BtnRecent" Click="BtnRecent_Click" Content="Recent ▾" ToolTip="Recently opened EXEs"/>
+                <Button x:Name="BtnAttach" Click="BtnAttach_Click" Content="Attach…"
+                        ToolTip="Attach to a running Clarion process"/>
                 <Border Width="1" Background="{StaticResource Border}" Margin="8,2"/>
                 <Button x:Name="BtnGo" Click="BtnGo_Click" Content="▶  Go  (F5)"/>
                 <Button x:Name="BtnStepOver" Click="BtnStepOver_Click" Content="⤼ Over (F10)" IsEnabled="False"/>
@@ -108,6 +111,7 @@
                                     <Border.ContextMenu>
                                         <ContextMenu>
                                             <MenuItem Header="Run to cursor" Click="RunToCursor_Click"/>
+                                            <MenuItem Header="Set next statement" Click="SetNextStatement_Click"/>
                                             <MenuItem Header="Toggle breakpoint" Click="ToggleBreakMenu_Click"/>
                                         </ContextMenu>
                                     </Border.ContextMenu>
@@ -202,6 +206,10 @@
                     <DataGrid.ContextMenu>
                         <ContextMenu>
                             <MenuItem Header="Set Value…" Click="SetValue_Click"/>
+                            <MenuItem Header="Copy value" Click="CopyValue_Click"/>
+                            <MenuItem Header="Copy name" Click="CopyName_Click"/>
+                            <MenuItem Header="View memory…" Click="ViewMemory_Click"/>
+                            <Separator/>
                             <MenuItem Header="Remove watch" Click="RemoveWatch_Click"/>
                         </ContextMenu>
                     </DataGrid.ContextMenu>
@@ -219,7 +227,12 @@
                 <DataGrid x:Name="GridLocals" Grid.Row="5" Style="{StaticResource VarGrid}"
                           MouseDoubleClick="GridLocals_DoubleClick" PreviewMouseRightButtonDown="Grid_RightDown">
                     <DataGrid.ContextMenu>
-                        <ContextMenu><MenuItem Header="Set Value…" Click="SetValue_Click"/></ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Set Value…" Click="SetValue_Click"/>
+                            <MenuItem Header="Copy value" Click="CopyValue_Click"/>
+                            <MenuItem Header="Copy name" Click="CopyName_Click"/>
+                            <MenuItem Header="View memory…" Click="ViewMemory_Click"/>
+                        </ContextMenu>
                     </DataGrid.ContextMenu>
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="Auto"/>
@@ -236,7 +249,12 @@
                 <DataGrid x:Name="GridVars" Grid.Row="8" Style="{StaticResource VarGrid}"
                           MouseDoubleClick="GridVars_DoubleClick" PreviewMouseRightButtonDown="Grid_RightDown">
                     <DataGrid.ContextMenu>
-                        <ContextMenu><MenuItem Header="Set Value…" Click="SetValue_Click"/></ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Set Value…" Click="SetValue_Click"/>
+                            <MenuItem Header="Copy value" Click="CopyValue_Click"/>
+                            <MenuItem Header="Copy name" Click="CopyName_Click"/>
+                            <MenuItem Header="View memory…" Click="ViewMemory_Click"/>
+                        </ContextMenu>
                     </DataGrid.ContextMenu>
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="Auto"/>

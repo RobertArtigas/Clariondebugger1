@@ -1,0 +1,28 @@
+<Window x:Class="ClarionDbg.App.MemoryWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Memory" Height="460" Width="640" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource Panel}" Foreground="{StaticResource Fg}" FontFamily="Segoe UI">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <DockPanel Grid.Row="0" Margin="0,0,0,8">
+            <TextBlock Text="Address" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <Button DockPanel.Dock="Right" Content="Refresh" Width="80" Click="Refresh_Click"/>
+            <CheckBox x:Name="ChkLive" DockPanel.Dock="Right" Content="Live" IsChecked="True"
+                      Foreground="{StaticResource Fg}" VerticalAlignment="Center" Margin="8,0"/>
+            <TextBox x:Name="TxtAddr" Padding="5,3" FontFamily="Consolas" FontSize="13"
+                     Background="{StaticResource Bg}" Foreground="{StaticResource Fg}"
+                     BorderBrush="{StaticResource Accent}" BorderThickness="1" KeyDown="Addr_KeyDown"/>
+        </DockPanel>
+        <Border Grid.Row="1" Background="{StaticResource Bg}" BorderBrush="{StaticResource Border}" BorderThickness="1">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <TextBox x:Name="TxtDump" IsReadOnly="True" Background="Transparent" Foreground="{StaticResource Fg}"
+                         BorderThickness="0" FontFamily="Consolas" FontSize="13" Padding="8"
+                         TextWrapping="NoWrap"/>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</Window>

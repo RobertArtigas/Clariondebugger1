@@ -69,11 +69,21 @@ public sealed class DebugSession
 
     public IReadOnlyList<Breakpoint> RequestedBreaks { get; private set; } = Array.Empty<Breakpoint>();
 
+    bool _attachMode;
+    uint _attachPid;
+
     public void Start(IEnumerable<Breakpoint> breaks)
     {
         RequestedBreaks = breaks.ToList();
         _worker = new Thread(Run) { IsBackground = true, Name = "ClarionDbg" };
         _worker.Start();
+    }
+
+    /// <summary>Attach the debugger to an already-running process of the same EXE.</summary>
+    public void Attach(uint pid, IEnumerable<Breakpoint> breaks)
+    {
+        _attachMode = true; _attachPid = pid;
+        Start(breaks);
     }
 
     public void Continue() { _act = Act.Continue; _resume.Set(); }
@@ -84,15 +94,29 @@ public sealed class DebugSession
 
     void Run()
     {
-        var si = new Native.STARTUPINFO(); si.cb = (uint)System.Runtime.InteropServices.Marshal.SizeOf(si);
-        if (!Native.CreateProcess(_exePath, null, IntPtr.Zero, IntPtr.Zero, false,
-                Native.DEBUG_ONLY_THIS_PROCESS, IntPtr.Zero,
-                Path.GetDirectoryName(_exePath), ref si, out var pi))
+        if (_attachMode)
         {
-            Log?.Invoke("CreateProcess failed: " + System.Runtime.InteropServices.Marshal.GetLastWin32Error());
-            return;
+            if (!Native.DebugActiveProcess(_attachPid))
+            {
+                Log?.Invoke("DebugActiveProcess failed: " + System.Runtime.InteropServices.Marshal.GetLastWin32Error()
+                            + " (try running the debugger as administrator).");
+                return;
+            }
+            _pid = _attachPid;
+            Log?.Invoke($"Attached to process {_attachPid}.");
         }
-        _pid = pi.dwProcessId;
+        else
+        {
+            var si = new Native.STARTUPINFO(); si.cb = (uint)System.Runtime.InteropServices.Marshal.SizeOf(si);
+            if (!Native.CreateProcess(_exePath, null, IntPtr.Zero, IntPtr.Zero, false,
+                    Native.DEBUG_ONLY_THIS_PROCESS, IntPtr.Zero,
+                    Path.GetDirectoryName(_exePath), ref si, out var pi))
+            {
+                Log?.Invoke("CreateProcess failed: " + System.Runtime.InteropServices.Marshal.GetLastWin32Error());
+                return;
+            }
+            _pid = pi.dwProcessId;
+        }
         var buf = new byte[256];
         bool running = true;
         while (running)
@@ -694,6 +718,24 @@ public sealed class DebugSession
         if (!_pe.IsCodeRva(rva)) return $"[runtime]  0x{absAddr:X8}";
         var p = _info.ProcContaining(rva);
         return p != null ? p.Name : $"0x{absAddr:X8}";
+    }
+
+    /// <summary>Read a block of process memory (for the hex/memory view). Empty if not running.</summary>
+    public byte[] ReadMemory(uint addr, int len)
+        => _hProcess == IntPtr.Zero || len <= 0 ? Array.Empty<byte>() : ReadBytes(addr, Math.Clamp(len, 1, 1 << 20));
+
+    /// <summary>Move the instruction pointer to another line in the current procedure (set-next-statement).
+    /// Only safe within the same procedure (the frame/locals stay valid). Refreshes the UI at the new line.</summary>
+    public bool SetNextStatement(string module, int line)
+    {
+        if (_hProcess == IntPtr.Zero) return false;
+        if (_info.LineToRva(line, module) is not uint rva) return false;
+        if (!_threads.TryGetValue(_stoppedTid, out var h)) return false;
+        var ctx = GetCtx(h);
+        ctx.Eip = _base + rva;
+        if (!Native.SetThreadContext(h, ref ctx)) return false;
+        ReportStop(ctx, "set next statement");   // re-report so the UI moves the current line + re-reads
+        return true;
     }
 
     // ---- process memory helpers ----
