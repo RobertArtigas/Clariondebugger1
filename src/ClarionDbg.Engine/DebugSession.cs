@@ -148,8 +148,45 @@ public sealed class DebugSession
             return Native.DBG_CONTINUE;   // initial loader breakpoint etc.
         }
 
-        return Native.DBG_EXCEPTION_NOT_HANDLED;
+        // ---- a crash (GPF) — stop at the fault so the user can inspect, then let it propagate ----
+        if (BreakOnException && IsFatalException(exCode))
+        {
+            uint firstChance = U32(buf, 92);   // dwFirstChance follows the 80-byte EXCEPTION_RECORD
+            if (firstChance != 0)
+            {
+                var ctx = GetCtx(hThread);
+                ReportStop(ctx, $"⚠ {ExceptionName(exCode)} (0x{exCode:X8}) at 0x{exAddr:X8}");
+                _resume.WaitOne();
+                if (_act == Act.Terminate) { Native.TerminateProcess(_hProcess, 0); return Native.DBG_CONTINUE; }
+            }
+        }
+        return Native.DBG_EXCEPTION_NOT_HANDLED;   // let the app's handler run (likely terminates)
     }
+
+    public bool BreakOnException { get; set; } = true;
+
+    static bool IsFatalException(uint code) => code is
+        0xC0000005 or  // access violation (GPF)
+        0xC000001D or  // illegal instruction
+        0xC0000096 or  // privileged instruction
+        0xC0000094 or  // integer divide by zero
+        0xC0000095 or  // integer overflow
+        0xC00000FD or  // stack overflow
+        0xC0000091 or  // float divide by zero
+        0xC0000006;    // in-page error
+
+    static string ExceptionName(uint code) => code switch
+    {
+        0xC0000005 => "Access violation (GPF)",
+        0xC000001D => "Illegal instruction",
+        0xC0000096 => "Privileged instruction",
+        0xC0000094 => "Integer divide by zero",
+        0xC0000095 => "Integer overflow",
+        0xC00000FD => "Stack overflow",
+        0xC0000091 => "Float divide by zero",
+        0xC0000006 => "In-page error",
+        _ => "Exception"
+    };
 
     /// <summary>Report the stop to the UI, wait for the next action, and set up the resume.</summary>
     uint Stop(ref Native.CONTEXT ctx, IntPtr hThread, uint userBpAddr)

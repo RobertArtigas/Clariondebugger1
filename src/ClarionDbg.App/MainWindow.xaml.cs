@@ -187,7 +187,7 @@ public partial class MainWindow : Window
         if (_breaks.Count == 0) { Log("Set at least one breakpoint (click the gutter)."); return; }
 
         _vars.Clear(); _localsRows.Clear(); LstStack.ItemsSource = null;
-        _session = new DebugSession(_exePath, _pe, _info);
+        _session = new DebugSession(_exePath, _pe, _info) { BreakOnException = ChkBreakCrash.IsChecked == true };
         _session.Log += s => Dispatcher.Invoke(() => Log(s));
         _session.Stopped += OnStopped;
         _session.Exited += code => Dispatcher.Invoke(() =>
@@ -265,6 +265,9 @@ public partial class MainWindow : Window
         _session?.Terminate();
         ClearCurrentLine(); SetState(State.Idle); Status("Stopped.");
     }
+
+    void ChkBreakCrash_Changed(object sender, RoutedEventArgs e)
+    { if (_session != null) _session.BreakOnException = ChkBreakCrash.IsChecked == true; }
 
     void Step(Action step, string what)
     {

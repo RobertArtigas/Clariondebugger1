@@ -23,6 +23,11 @@
                 <Button x:Name="BtnStepOut" Click="BtnStepOut_Click" Content="⤒ Out (⇧F11)" IsEnabled="False"/>
                 <Button x:Name="BtnStop" Click="BtnStop_Click" Content="■  Stop" IsEnabled="False"/>
                 <Border Width="1" Background="{StaticResource Border}" Margin="8,2"/>
+                <CheckBox x:Name="ChkBreakCrash" Content="Break on crash" IsChecked="True"
+                          Foreground="{StaticResource Fg}" VerticalAlignment="Center" Margin="4,0" FontSize="12"
+                          Checked="ChkBreakCrash_Changed" Unchecked="ChkBreakCrash_Changed"
+                          ToolTip="Stop at the faulting line when the program GPFs / throws a fatal exception"/>
+                <Border Width="1" Background="{StaticResource Border}" Margin="8,2"/>
                 <TextBlock Text="Click the gutter to set a breakpoint" Foreground="{StaticResource FgDim}"
                            VerticalAlignment="Center" Margin="8,0" FontSize="12"/>
             </StackPanel>
