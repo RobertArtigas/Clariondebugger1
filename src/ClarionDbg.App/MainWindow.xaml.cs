@@ -574,9 +574,12 @@ public partial class MainWindow : Window
             {
                 _dataTipWord = word;
                 string type = LookupDeclType(_curModule, v.Name) ?? v.TypeName;
-                string body = v.Display;
-                if (TryFormatClarionDateTime(type, v.Display, out var pretty)) body = $"{pretty}   (raw {v.Display})";
-                ShowDataTip(tb, pos, word, type, body, v.Full);
+                string body = v.Display, extra = v.Full;
+                if (TryFormatClarionDateTime(type, v.Display, out var pretty))
+                    body = $"{pretty}   (raw {v.Display})";
+                else if (body.StartsWith("{") && body.EndsWith("}"))   // a GROUP / record — list fields by line
+                { body = FormatGroupMultiline(body); extra = ""; }
+                ShowDataTip(tb, pos, word, type, body, extra);
                 return;
             }
         }
@@ -626,6 +629,33 @@ public partial class MainWindow : Window
     }
 
     void SourceText_MouseLeave(object sender, MouseEventArgs e) => HideDataTip();
+
+    /// <summary>Turn a group dump "{a=1, b='x', sub={c=2}}" into one "a = 1" line per top-level field.</summary>
+    static string FormatGroupMultiline(string s)
+    {
+        if (s.Length < 2) return s;
+        string inner = s[1..^1];
+        var sb = new StringBuilder();
+        int depth = 0, start = 0; bool q = false;
+        void Emit(int end)
+        {
+            var part = inner[start..end].Trim();
+            if (part.Length == 0) return;
+            int eq = part.IndexOf('=');
+            if (sb.Length > 0) sb.Append('\n');
+            sb.Append(eq > 0 ? $"{part[..eq].Trim()}  =  {part[(eq + 1)..].Trim()}" : part);
+        }
+        for (int i = 0; i < inner.Length; i++)
+        {
+            char c = inner[i];
+            if (c == '\'') q = !q;
+            else if (!q && c == '{') depth++;
+            else if (!q && c == '}') depth--;
+            else if (!q && depth == 0 && c == ',') { Emit(i); start = i + 1; }
+        }
+        Emit(inner.Length);
+        return sb.ToString();
+    }
 
     void ShowDataTip(System.Windows.Controls.TextBlock anchor, Point at, string name, string type, string value, string full)
     {

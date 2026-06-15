@@ -81,6 +81,10 @@ ABC application — `School`, 54 modules):
   frame and works both when stopped and live while the program is running. Hovering an **EQUATE**
   shows its compile-time constant value (decoded to decimal for hex/binary/octal literals),
   resolved from the source and any `INCLUDE`d files — so it works even before the program runs.
+  Hovering also resolves **GROUP / record fields** — a file-record field by its prefixed name
+  (`STU:LastName`, `MAJ:Number`) or a dotted member path (`vGroup.gA`); hovering the GROUP itself
+  lists every field and value. (QUEUE-reference contents such as `BRW1.Q` are not yet supported —
+  that needs the reference/QUEUE type records to be decoded.)
 - **Break on crash** — automatically stops at the faulting instruction on a GPF / access
   violation, divide-by-zero, stack overflow, illegal instruction, etc. (toggle "Break on crash"),
   so you can inspect the call stack and variables before the app dies.

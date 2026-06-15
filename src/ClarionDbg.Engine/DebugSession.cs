@@ -530,7 +530,82 @@ public sealed class DebugSession
     }
 
     string? ResolveName(string name, int frameIndex)
-        => LocateVar(name, frameIndex) is { } v ? CleanVal(ReadVar(v.Name, v.Va, v.Type, v.Size, v.Threaded).Display) : null;
+        => LocateMember(name, frameIndex) is { } v ? CleanVal(ReadVar(v.Name, v.Va, v.Type, v.Size, v.Threaded).Display) : null;
+
+    /// <summary>Like <see cref="LocateVar"/> but also resolves into GROUP members: a dotted path
+    /// (<c>vGroup.gA</c>, <c>BRW1.Q</c>) or a flat record-field name (<c>STU:LastName</c>) found as a
+    /// member of any group-typed global/local. Reference (&amp;QUEUE/&amp;GROUP) deref is not yet decoded.</summary>
+    (uint Va, ClaType Type, int Size, bool Threaded, string Name)? LocateMember(string name, int frameIndex)
+    {
+        if (LocateVar(name, frameIndex) is { } direct) return direct;   // top-level symbol (incl. fields that are standalone)
+
+        // dotted member path: resolve the head, then walk into each group member
+        if (name.Contains('.'))
+        {
+            var parts = name.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length >= 2 && LocateVar(parts[0], frameIndex) is { } head)
+            {
+                uint va = head.Va; ClaType type = head.Type; bool threaded = head.Threaded;
+                for (int i = 1; i < parts.Length; i++)
+                {
+                    if (type.Kind != TypeKind.Group || FindField(type, parts[i]) is not { } f) return null;
+                    va = (uint)(va + f.Offset); type = f.Type;
+                }
+                return (va, type, type.Size > 0 ? type.Size : 4, threaded, name);
+            }
+        }
+
+        // flat field name: search the members of every group-typed global / current-frame local
+        foreach (var (rootVa, rootType, threaded) in GroupRoots(frameIndex))
+            if (FindFieldDeep(rootType, rootVa, name) is { } hit)
+                return (hit.Va, hit.Type, hit.Type.Size > 0 ? hit.Type.Size : 4, threaded, name);
+
+        return null;
+    }
+
+    // match a member name to a wanted field, tolerating the Clarion prefix being present on only
+    // one side: "STU:LastName" ↔ "LastName", "gA" ↔ "gA". Exact (incl. prefix) is preferred.
+    static string Unprefixed(string s) { int c = s.LastIndexOf(':'); return c >= 0 ? s[(c + 1)..] : s; }
+    static bool FieldNameMatch(string member, string want) =>
+        string.Equals(member, want, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(Unprefixed(member), Unprefixed(want), StringComparison.OrdinalIgnoreCase);
+
+    static ClaType.GroupField? FindField(ClaType g, string seg)
+    {
+        foreach (var m in g.Members) if (string.Equals(m.Name, seg, StringComparison.OrdinalIgnoreCase)) return m;
+        foreach (var m in g.Members) if (FieldNameMatch(m.Name, seg)) return m;
+        return null;
+    }
+
+    static (uint Va, ClaType Type)? FindFieldDeep(ClaType g, uint baseVa, string name)
+    {
+        if (g.Kind != TypeKind.Group) return null;
+        foreach (var m in g.Members)                                   // exact (with prefix) first
+            if (string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase))
+                return ((uint)(baseVa + m.Offset), m.Type);
+        foreach (var m in g.Members)                                   // then prefix-tolerant
+            if (FieldNameMatch(m.Name, name))
+                return ((uint)(baseVa + m.Offset), m.Type);
+        foreach (var m in g.Members)                                   // then recurse into nested groups
+            if (m.Type.Kind == TypeKind.Group && FindFieldDeep(m.Type, (uint)(baseVa + m.Offset), name) is { } hit)
+                return hit;
+        return null;
+    }
+
+    IEnumerable<(uint Va, ClaType Type, bool Threaded)> GroupRoots(int frameIndex)
+    {
+        if (frameIndex >= 0 && frameIndex < _liveFrames.Count)
+        {
+            var (ebp, rva) = _liveFrames[frameIndex];
+            if (_pe.IsCodeRva(rva) && _info.ProcContaining(rva) is { } proc)
+                foreach (var lv in proc.Locals)
+                    if (lv.Type.Kind == TypeKind.Group)
+                        yield return (lv.IsStatic ? _base + lv.Rva : (uint)((long)ebp + lv.FrameOffset), lv.Type, lv.Threaded);
+        }
+        foreach (var gl in _info.Globals)
+            if (gl.Type.Kind == TypeKind.Group)
+                yield return (_base + gl.Rva, gl.Type, gl.Threaded);
+    }
 
     /// <summary>Evaluate a watch expression (a variable name, or a comparison like "count &gt; 5")
     /// against a stack frame using current process memory. Returns null while not stopped.</summary>
@@ -550,7 +625,7 @@ public sealed class DebugSession
             catch { return new VarValue(expr, 0, "", "<error>", "could not evaluate expression", 0, WriteKind.Raw); }
         }
 
-        if (LocateVar(expr, frameIndex) is { } v)
+        if (LocateMember(expr, frameIndex) is { } v)
             return ReadVar(v.Name, v.Va, v.Type, v.Size, v.Threaded) with { Name = expr };
         return new VarValue(expr, 0, "", "<not found>", "no local or global named '" + expr + "'", 0, WriteKind.Raw);
     }
