@@ -69,6 +69,12 @@ public sealed class DebugSession
 
     public IReadOnlyList<Breakpoint> RequestedBreaks { get; private set; } = Array.Empty<Breakpoint>();
 
+    /// <summary>OS process id of the debuggee (0 until the process is created/attached).</summary>
+    public uint Pid => _pid;
+
+    /// <summary>True if the given OS thread id belongs to the debuggee.</summary>
+    public bool HasThread(uint tid) => _threads.ContainsKey(tid);
+
     bool _attachMode;
     uint _attachPid;
 

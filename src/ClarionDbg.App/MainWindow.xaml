@@ -31,6 +31,9 @@
                         ToolTip="Manage breakpoints: enable/disable, conditions, hit counts, tracepoints"/>
                 <Button x:Name="BtnDisasm" Click="BtnDisasm_Click" Content="⟨/⟩ Disassembly"
                         ToolTip="Show disassembly at the current instruction pointer"/>
+                <ToggleButton x:Name="BtnPickThread" Click="BtnPickThread_Click" Content="🎯 Identify thread"
+                              Foreground="{StaticResource Fg}" VerticalAlignment="Center" Margin="4,0"
+                              ToolTip="Toggle on, then move the mouse over the running program's window to see which thread owns it (selects that thread when stopped)"/>
                 <Border Width="1" Background="{StaticResource Border}" Margin="8,2"/>
                 <CheckBox x:Name="ChkBreakCrash" Content="Break on crash" IsChecked="True"
                           Foreground="{StaticResource Fg}" VerticalAlignment="Center" Margin="4,0" FontSize="12"

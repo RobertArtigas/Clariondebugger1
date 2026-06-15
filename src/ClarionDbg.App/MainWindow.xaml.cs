@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
 using System.Windows.Input;
@@ -56,6 +57,7 @@ public partial class MainWindow : Window
         System.Windows.Data.CollectionViewSource.GetDefaultView(_localsRows).Filter = o => FilterMatch(o, _localsFilter);
         System.Windows.Data.CollectionViewSource.GetDefaultView(_vars).Filter = o => FilterMatch(o, _globalsFilter);
         _liveTimer.Tick += (_, _) => RefreshLive();
+        _pickTimer.Tick += (_, _) => PickThreadTick();
         LoadRecent();
         Loaded += (_, _) =>
         {
@@ -621,6 +623,60 @@ public partial class MainWindow : Window
     {
         if (_dataPopup != null) _dataPopup.IsOpen = false;
         _dataTipWord = null;
+    }
+
+    // ---------- identify which debuggee thread owns the window under the cursor ----------
+    [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
+    [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);
+    [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT p);
+    [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr hWnd, StringBuilder s, int max);
+    const uint GA_ROOT = 2;
+
+    readonly System.Windows.Threading.DispatcherTimer _pickTimer =
+        new() { Interval = TimeSpan.FromMilliseconds(150) };
+
+    void BtnPickThread_Click(object sender, RoutedEventArgs e)
+    {
+        if (BtnPickThread.IsChecked == true)
+        {
+            if (_session == null || _session.Pid == 0)
+            { BtnPickThread.IsChecked = false; Status("Start (or attach to) the program first."); return; }
+            _pickTimer.Start();
+            Status("Move the mouse over the program's window to identify its thread…");
+        }
+        else _pickTimer.Stop();
+    }
+
+    void PickThreadTick()
+    {
+        if (_session == null || _session.Pid == 0) return;
+        if (!GetCursorPos(out var p)) return;
+        var hwnd = WindowFromPoint(p);
+        if (hwnd == IntPtr.Zero) return;
+        var root = GetAncestor(hwnd, GA_ROOT);
+        if (root == IntPtr.Zero) root = hwnd;
+        uint tid = GetWindowThreadProcessId(root, out uint pid);
+        if (pid != _session.Pid) { Status("Hover a window of the debuggee to identify its thread…"); return; }
+
+        var sb = new StringBuilder(256);
+        GetWindowText(root, sb, sb.Capacity);
+        string title = sb.Length > 0 ? $"\"{sb}\"" : "(untitled window)";
+        bool known = _session.HasThread(tid);
+        Status($"Window {title}  →  Thread {tid}" + (known ? "" : "  (thread not tracked)"));
+
+        // when stopped we can switch the debugger to that thread's stack/locals
+        if (_state == State.Stopped && known)
+            SelectThreadByTid(tid);
+    }
+
+    void SelectThreadByTid(uint tid)
+    {
+        if (CmbThreads.SelectedItem is DebugSession.ThreadRef cur && cur.Tid == tid) return;  // already there
+        foreach (var item in CmbThreads.Items)
+            if (item is DebugSession.ThreadRef tr && tr.Tid == tid)
+            { CmbThreads.SelectedItem = tr; break; }   // triggers CmbThreads_SelectionChanged -> SwitchThread
     }
 
     // ---------- helpers ----------

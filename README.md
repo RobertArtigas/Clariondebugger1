@@ -85,6 +85,11 @@ ABC application — `School`, 54 modules):
 - **Thread list & switching** — a thread picker shows every live thread and where each is
   executing; switch threads to walk another thread's call stack (and its per-frame locals)
   while stopped.
+- **Identify thread by window** — toggle "🎯 Identify thread", then move the mouse over any of
+  the running program's windows to see which thread owns it (`GetWindowThreadProcessId`). When the
+  program is stopped, hovering a window also selects that thread in the debugger so its call stack
+  and locals load — handy in multi-threaded Clarion apps (one thread per window) to jump straight
+  to the thread you're looking at.
 - **WPF UI** — professional dark theme, breakpoint gutter, current-line highlight, output log.
 
 Built on the decoded **TSWD** debug format (`TSWD_FORMAT.md`) — no dependency on the
