@@ -58,6 +58,10 @@ ABC application — `School`, 54 modules):
   - **Breakpoint manager** — a window to enable/disable, edit conditions / hit counts /
     tracepoint logs, see hit counts, and remove breakpoints; all editable live while running.
   - **Persistence** — breakpoints are saved per-EXE and restored next time you open it.
+- **Watch window** — type a variable name or an expression (`count > 5`, `mylocalvar1 = 'asdf'`)
+  and watch its value; watches resolve against the selected stack frame and refresh live while
+  the program runs and on every stop. Comparison expressions show `true`/`false`; double-click a
+  watched variable to edit it.
 - **Break on crash** — automatically stops at the faulting instruction on a GPF / access
   violation, divide-by-zero, stack overflow, illegal instruction, etc. (toggle "Break on crash"),
   so you can inspect the call stack and variables before the app dies.
@@ -159,6 +163,9 @@ MSBuild.exe sample/dbgtest/dbgtest.cwproj /p:Configuration=Debug `
       writes the new value to process memory (`WriteProcessMemory`). Parses by kind: integer,
       float, string (space-padded like a Clarion STRING), or raw hex; re-reads to confirm.
 - [ ] Clarion ROUTINE frame sharing (routines reuse the parent procedure's locals).
+- [x] **Watch window + expression evaluator** — watch variable names or comparison expressions,
+      resolved against the selected frame's locals/params then globals, refreshed live and on
+      each stop; booleans render `true`/`false`; watched variables are editable.
 - [x] **Conditional breakpoints, hit counts, and tracepoints** — break on a condition
       (`count > 10`), on the Nth/every-Nth hit (`=5`/`%3`), or log-and-continue with
       `{variable}` interpolation; plus **run-to-cursor**, **break-on-procedure-entry**, a

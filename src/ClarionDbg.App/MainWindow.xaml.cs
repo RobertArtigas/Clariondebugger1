@@ -31,6 +31,7 @@ public partial class MainWindow : Window
     readonly ObservableCollection<SourceLine> _lines = new();
     readonly ObservableCollection<VarRow> _vars = new();
     readonly ObservableCollection<VarRow> _localsRows = new();
+    readonly ObservableCollection<VarRow> _watch = new();
     string _localsFilter = "", _globalsFilter = "";
 
     static bool FilterMatch(object o, string f) =>
@@ -50,6 +51,7 @@ public partial class MainWindow : Window
         SourceList.ItemsSource = _lines;
         GridVars.ItemsSource = _vars;
         GridLocals.ItemsSource = _localsRows;
+        GridWatch.ItemsSource = _watch;
         // name filters (collection-view filtering keeps the live refresh working)
         System.Windows.Data.CollectionViewSource.GetDefaultView(_localsRows).Filter = o => FilterMatch(o, _localsFilter);
         System.Windows.Data.CollectionViewSource.GetDefaultView(_vars).Filter = o => FilterMatch(o, _globalsFilter);
@@ -350,6 +352,8 @@ public partial class MainWindow : Window
         _vars.Clear();
         foreach (var v in info.Globals) _vars.Add(ToRow(v, null));
 
+        RefreshWatch(LstStack.SelectedIndex < 0 ? 0 : LstStack.SelectedIndex);
+
         Status($"Stopped at line {info.Line}. Press Go to continue.");
     });
 
@@ -382,6 +386,7 @@ public partial class MainWindow : Window
         TxtLocalsHeader.Text = $"LOCALS — {f.Proc}" + (f.Line is int ln ? $"  ({f.Module}:{ln})" : "");
         _localsRows.Clear();
         foreach (var v in f.Locals) _localsRows.Add(ToRow(v, f.Module));
+        RefreshWatch(LstStack.SelectedIndex < 0 ? 0 : LstStack.SelectedIndex);   // watches follow the selected frame
         // jump the source view to the selected frame's line — but only on an explicit click,
         // not when we re-select the sticky frame on a stop (then the source follows execution)
         if (!_suppressStackSource && f.Module != null && f.Line is int fl)
@@ -528,9 +533,39 @@ public partial class MainWindow : Window
             int idx = LstStack.SelectedIndex < 0 ? 0 : LstStack.SelectedIndex;
             UpdateRows(_localsRows, _session.RereadFrameLocals(idx));
             UpdateRows(_vars, _session.RereadGlobals());
+            RefreshWatch(idx);
         }
         catch { }
     }
+
+    /// <summary>Re-evaluate every watch expression against the given stack frame's live memory.</summary>
+    void RefreshWatch(int frameIndex)
+    {
+        if (_session == null) return;
+        foreach (var row in _watch)
+        {
+            var v = _session.EvalWatch(row.Expr, frameIndex);
+            if (v == null) continue;
+            row.Type = v.TypeName; row.Value = v.Display; row.Tip = v.Full;
+            row.AddrValue = v.Addr; row.Address = v.Addr != 0 ? $"0x{v.Addr:X8}" : "";
+            row.Size = v.Size; row.Kind = v.Kind;
+        }
+    }
+
+    void TxtWatchAdd_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        var expr = TxtWatchAdd.Text.Trim();
+        if (expr.Length == 0) return;
+        var row = new VarRow { Expr = expr, Name = expr, Value = "—" };
+        _watch.Add(row);
+        TxtWatchAdd.Clear();
+        RefreshWatch(LstStack.SelectedIndex < 0 ? 0 : LstStack.SelectedIndex);
+        e.Handled = true;
+    }
+
+    void RemoveWatch_Click(object sender, RoutedEventArgs e)
+    { if (GridWatch.SelectedItem is VarRow row) _watch.Remove(row); }
 
     static void UpdateRows(ObservableCollection<VarRow> rows, IReadOnlyList<DebugSession.VarValue> vals)
     {
@@ -607,6 +642,7 @@ public partial class MainWindow : Window
     // ---------- edit value (write to process memory) ----------
     void GridLocals_DoubleClick(object sender, MouseButtonEventArgs e) => EditRow(GridLocals.SelectedItem as VarRow);
     void GridVars_DoubleClick(object sender, MouseButtonEventArgs e) => EditRow(GridVars.SelectedItem as VarRow);
+    void GridWatch_DoubleClick(object sender, MouseButtonEventArgs e) => EditRow(GridWatch.SelectedItem as VarRow);
 
     void SetValue_Click(object sender, RoutedEventArgs e)
     {
@@ -643,6 +679,7 @@ public partial class MainWindow : Window
                 : _session.RereadGlobals();
             var nv = reread.FirstOrDefault(x => x.Name == row.Name && x.Addr == row.AddrValue);
             if (nv != null) { row.Value = nv.Display; row.Tip = nv.Full; }
+            if (_watch.Contains(row)) RefreshWatch(LstStack.SelectedIndex < 0 ? 0 : LstStack.SelectedIndex);
         }
     }
 
@@ -723,13 +760,14 @@ public sealed class ProcItem
 public sealed class VarRow : INotifyPropertyChanged
 {
     public string Name { get; set; } = "";
-    public string Type { get; set; } = "";
-    public string Address { get; set; } = "";
     public uint AddrValue { get; set; }
     public int Size { get; set; }
     public DebugSession.WriteKind Kind { get; set; }
+    public string Expr { get; set; } = "";   // for watch rows: the original expression to re-evaluate
 
-    string _value = "", _tip = "";
+    string _value = "", _tip = "", _type = "", _addr = "";
+    public string Type { get => _type; set { if (_type != value) { _type = value; Raise(nameof(Type)); } } }
+    public string Address { get => _addr; set { if (_addr != value) { _addr = value; Raise(nameof(Address)); } } }
     public string Value { get => _value; set { if (_value != value) { _value = value; Raise(nameof(Value)); } } }
     public string Tip { get => _tip; set { if (_tip != value) { _tip = value; Raise(nameof(Tip)); } } }
 

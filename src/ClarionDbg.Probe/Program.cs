@@ -81,6 +81,17 @@ sess.Stopped += info2 =>
         }
     }
 
+    var watch = Environment.GetEnvironmentVariable("CLARIONDBG_WATCH");   // comma-separated expressions
+    if (watch != null)
+    {
+        Console.WriteLine("watch:");
+        foreach (var ex in watch.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var w = sess.EvalWatch(ex, 0);
+            Console.WriteLine($"   {ex,-22} {w?.TypeName,-8} = {w?.Display}");
+        }
+    }
+
     int stepsLeft = int.TryParse(Environment.GetEnvironmentVariable("CLARIONDBG_STEPS"), out var sc) ? sc : 0;
     string kind = Environment.GetEnvironmentVariable("CLARIONDBG_STEPKIND") ?? "into";
     if (stepsLeft > 0 && stepCounter < stepsLeft)

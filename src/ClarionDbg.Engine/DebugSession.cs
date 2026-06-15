@@ -476,6 +476,66 @@ public sealed class DebugSession
         return d;
     }
 
+    // ---- watch expressions (resolved against a specific stack frame, current memory) ----
+
+    /// <summary>Find a variable by name in the given frame's locals, then globals; null if unknown.</summary>
+    (uint Va, ClaType Type, int Size, bool Threaded, string Name)? LocateVar(string name, int frameIndex)
+    {
+        if (frameIndex >= 0 && frameIndex < _liveFrames.Count)
+        {
+            var (ebp, rva) = _liveFrames[frameIndex];
+            if (_pe.IsCodeRva(rva) && _info.ProcContaining(rva) is { } proc)
+                foreach (var lv in proc.Locals)
+                    if (string.Equals(lv.Name, name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        uint va = lv.IsStatic ? _base + lv.Rva : (uint)((long)ebp + lv.FrameOffset);
+                        int sz = lv.Type.Size > 0 ? lv.Type.Size : lv.DisplaySize;
+                        return (va, lv.Type, sz, lv.Threaded, lv.Name);
+                    }
+        }
+        foreach (var g in _info.Globals)
+            if (string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase))
+                return (_base + g.Rva, g.Type, g.DisplaySize, g.Threaded, g.Name);
+        return null;
+    }
+
+    string? ResolveName(string name, int frameIndex)
+        => LocateVar(name, frameIndex) is { } v ? CleanVal(ReadVar(v.Name, v.Va, v.Type, v.Size, v.Threaded).Display) : null;
+
+    /// <summary>Evaluate a watch expression (a variable name, or a comparison like "count &gt; 5")
+    /// against a stack frame using current process memory. Returns null while not stopped.</summary>
+    public VarValue? EvalWatch(string expr, int frameIndex)
+    {
+        if (_hProcess == IntPtr.Zero) return null;
+        expr = (expr ?? "").Trim();
+        if (expr.Length == 0) return null;
+
+        if (HasCompare(expr))   // boolean expression → show true/false
+        {
+            try
+            {
+                bool r = Expr.EvalBool(expr, n => ResolveName(n, frameIndex));
+                return new VarValue(expr, 0, "BOOL", r ? "true" : "false", $"{expr}  →  {r}", 0, WriteKind.Raw);
+            }
+            catch { return new VarValue(expr, 0, "", "<error>", "could not evaluate expression", 0, WriteKind.Raw); }
+        }
+
+        if (LocateVar(expr, frameIndex) is { } v)
+            return ReadVar(v.Name, v.Va, v.Type, v.Size, v.Threaded) with { Name = expr };
+        return new VarValue(expr, 0, "", "<not found>", "no local or global named '" + expr + "'", 0, WriteKind.Raw);
+    }
+
+    static bool HasCompare(string s)
+    {
+        bool inStr = false;
+        for (int i = 0; i < s.Length; i++)
+        {
+            if (s[i] == '\'') { inStr = !inStr; continue; }
+            if (!inStr && (s[i] == '<' || s[i] == '>' || s[i] == '=' || (s[i] == '!' && i + 1 < s.Length && s[i + 1] == '='))) return true;
+        }
+        return false;
+    }
+
     readonly List<(uint Ebp, uint Rva)> _liveFrames = new();   // for live re-reading while running
 
     Frame MakeFrame(uint addr, uint frameEbp)
