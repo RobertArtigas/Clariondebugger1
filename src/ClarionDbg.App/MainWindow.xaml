@@ -218,6 +218,8 @@
                             <MenuItem Header="Copy name" Click="CopyName_Click"/>
                             <MenuItem Header="View memory…" Click="ViewMemory_Click"/>
                             <MenuItem Header="View as array…" Click="ViewArray_Click"/>
+                            <MenuItem Header="Resolve on current thread" Click="ResolveThreaded_Click"
+                                      ToolTip="For THREADed (.cwtls) data: read the live value for the stopped thread via THR$GetInstance"/>
                             <Separator/>
                             <MenuItem Header="Remove watch" Click="RemoveWatch_Click"/>
                         </ContextMenu>
@@ -242,6 +244,8 @@
                             <MenuItem Header="Copy name" Click="CopyName_Click"/>
                             <MenuItem Header="View memory…" Click="ViewMemory_Click"/>
                             <MenuItem Header="View as array…" Click="ViewArray_Click"/>
+                            <MenuItem Header="Resolve on current thread" Click="ResolveThreaded_Click"
+                                      ToolTip="For THREADed (.cwtls) data: read the live value for the stopped thread via THR$GetInstance"/>
                         </ContextMenu>
                     </DataGrid.ContextMenu>
                     <DataGrid.Columns>
@@ -265,6 +269,8 @@
                             <MenuItem Header="Copy name" Click="CopyName_Click"/>
                             <MenuItem Header="View memory…" Click="ViewMemory_Click"/>
                             <MenuItem Header="View as array…" Click="ViewArray_Click"/>
+                            <MenuItem Header="Resolve on current thread" Click="ResolveThreaded_Click"
+                                      ToolTip="For THREADed (.cwtls) data: read the live value for the stopped thread via THR$GetInstance"/>
                         </ContextMenu>
                     </DataGrid.ContextMenu>
                     <DataGrid.Columns>
