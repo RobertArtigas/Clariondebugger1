@@ -132,7 +132,7 @@
                                         <TextBlock Grid.Column="1" Text="{Binding LineNo}" Foreground="{StaticResource FgDim}"
                                                    FontFamily="Consolas" FontSize="13" TextAlignment="Right" Margin="0,0,8,0"/>
                                         <TextBlock Grid.Column="2" local:SyntaxHighlight.Text="{Binding Text}"
-                                                   Foreground="{StaticResource Fg}"
+                                                   Foreground="{StaticResource Fg}" Background="Transparent"
                                                    FontFamily="Consolas" FontSize="13" TextWrapping="NoWrap"
                                                    MouseMove="SourceText_MouseMove" MouseLeave="SourceText_MouseLeave"/>
                                     </Grid>

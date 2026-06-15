@@ -519,7 +519,9 @@ public partial class MainWindow : Window
     }
 
     // ---------- source data tips (hover a variable to see its live value) ----------
-    System.Windows.Controls.ToolTip? _dataTip;
+    // A Popup (not a ToolTip) is used deliberately: WPF only shows ToolTips via its own hover
+    // timer, so toggling ToolTip.IsOpen from code is unreliable. A Popup shows on demand.
+    System.Windows.Controls.Primitives.Popup? _dataPopup;
     double _srcCharWidth;
     string? _dataTipWord;
 
@@ -555,10 +557,11 @@ public partial class MainWindow : Window
         if (sender is not System.Windows.Controls.TextBlock tb || tb.DataContext is not SourceLine sl)
         { HideDataTip(); return; }
 
-        int col = (int)(e.GetPosition(tb).X / SourceCharWidth());
+        var pos = e.GetPosition(tb);
+        int col = (int)(pos.X / SourceCharWidth());
         var word = WordAt(sl.Text, col);
         if (word == null) { HideDataTip(); return; }
-        if (word == _dataTipWord && _dataTip?.IsOpen == true) return;   // already showing this word
+        if (word == _dataTipWord && _dataPopup?.IsOpen == true) return;   // already showing this word
 
         int frame = LstStack.SelectedIndex < 0 ? 0 : LstStack.SelectedIndex;
         DebugSession.VarValue? v;
@@ -569,23 +572,17 @@ public partial class MainWindow : Window
         string type = LookupDeclType(_curModule, v.Name) ?? v.TypeName;
         string body = v.Display;
         if (TryFormatClarionDateTime(type, v.Display, out var pretty)) body = $"{pretty}   (raw {v.Display})";
-        ShowDataTip(word, type, body, v.Full);
+        ShowDataTip(tb, pos, word, type, body, v.Full);
     }
 
     void SourceText_MouseLeave(object sender, MouseEventArgs e) => HideDataTip();
 
-    void ShowDataTip(string name, string type, string value, string full)
+    void ShowDataTip(System.Windows.Controls.TextBlock anchor, Point at, string name, string type, string value, string full)
     {
-        _dataTip ??= new System.Windows.Controls.ToolTip
-        {
-            Placement = System.Windows.Controls.Primitives.PlacementMode.Mouse,
-            Background = new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x1E)),
-            BorderBrush = (Brush)(TryFindResource("Border") ?? Brushes.Gray),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(8, 5, 8, 5)
-        };
-        var fg = (Brush)(TryFindResource("Fg") ?? Brushes.White);
+        var fg  = (Brush)(TryFindResource("Fg") ?? Brushes.White);
         var dim = (Brush)(TryFindResource("FgDim") ?? Brushes.Gray);
+        var border = (Brush)(TryFindResource("Border") ?? Brushes.Gray);
+
         var panel = new System.Windows.Controls.StackPanel();
         panel.Children.Add(new System.Windows.Controls.TextBlock
         { Text = $"{name}  :  {type}", Foreground = dim, FontFamily = new FontFamily("Consolas"), FontSize = 11 });
@@ -600,14 +597,29 @@ public partial class MainWindow : Window
                 Text = full, Foreground = dim, FontFamily = new FontFamily("Consolas"), FontSize = 11,
                 TextWrapping = TextWrapping.Wrap, MaxWidth = 520, Margin = new Thickness(0, 3, 0, 0)
             });
-        _dataTip.Content = panel;
-        _dataTip.IsOpen = false;   // re-open so it repositions at the current cursor
-        _dataTip.IsOpen = true;
+
+        _dataPopup ??= new System.Windows.Controls.Primitives.Popup
+        {
+            AllowsTransparency = true,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Relative,
+            StaysOpen = true
+        };
+        _dataPopup.Child = new System.Windows.Controls.Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x1E)),
+            BorderBrush = border, BorderThickness = new Thickness(1),
+            Padding = new Thickness(8, 5, 8, 5), Child = panel
+        };
+        _dataPopup.PlacementTarget = anchor;
+        _dataPopup.HorizontalOffset = at.X;
+        _dataPopup.VerticalOffset = at.Y + 18;     // drop just below the hovered word
+        _dataPopup.IsOpen = false;                 // toggle forces a reposition at the new spot
+        _dataPopup.IsOpen = true;
     }
 
     void HideDataTip()
     {
-        if (_dataTip != null) _dataTip.IsOpen = false;
+        if (_dataPopup != null) _dataPopup.IsOpen = false;
         _dataTipWord = null;
     }
 
